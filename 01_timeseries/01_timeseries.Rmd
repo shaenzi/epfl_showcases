@@ -1,0 +1,312 @@
+---
+title: "Timeseries plot of Swiss residents"
+author: "Sara"
+date: "`r Sys.Date()`"
+output: 
+  rmdformats::downcute
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Introduction - what was the task?
+
+As part of the [Data visualisation and communication course](https://www.extensionschool.ch/applied-data-science-communication-visualization), one of the optional tasks after finishing the first of four sub-courses was to find timeseries data and plot it. A very open question! There is so much timeseries data - the vast majority of at least the academic data I have worked with were timeseries. I need to choose something, so somewhat randomly I choose something I haven't worked with before, namely open government data. I want to look at the number of people living in Switzerland - Swiss nationals and foreigners - but additionally show what proportion of the Swiss nationals has/had the right to vote. This could later be compared and contrasted with e.g. the numbers of signatures required for a referendum.
+
+# Getting ready
+
+with package imports
+```{r imports, warning=FALSE, message=FALSE}
+library(tidyverse)
+library(readxl)
+library(scales)
+```
+
+## Data sources
+
+all data come from the [Swiss Federal Statistical Office](https://www.bfs.admin.ch/bfs/de/home.html)
+
+- [Share of Swiss nationals 1951 to 2020](https://www.bfs.admin.ch/bfs/de/home/statistiken/bevoelkerung/stand-entwicklung/bevoelkerung.assetdetail.18344337.html)
+- [Share of non-Swiss nationals living in Switzerland 1951 to 2020](https://www.bfs.admin.ch/bfs/de/home/statistiken/bevoelkerung/stand-entwicklung/bevoelkerung.assetdetail.18344345.html)
+- [share of people allowed to vote](https://www.bfs.admin.ch/bfs/de/home/statistiken/politik.assetdetail.11048403.html)
+{Number of signatures required for a referendum described here}(https://hls-dhs-dss.ch/de/articles/010386/2016-07-18/)
+
+## reading and first preparation of data
+
+```{r}
+swiss <- read_excel("./data/su-d-01.02.04.02.xlsx", skip=3)
+swiss <- swiss %>%
+  rename(year = 1, pop_beginning = 2, pop_end = 11) %>% # rename and select columns
+  dplyr::select(year, pop_beginning, pop_end) %>%
+  filter(str_detect(year, "^[0-9]{4}$")) %>%
+  mutate(year = as.integer(year))
+glimpse(swiss)
+```
+
+```{r}
+non_swiss <- read_excel("./data/su-d-01.02.04.03.xlsx", skip = 3)
+non_swiss <- non_swiss %>%
+  rename(year = 1, pop_beginning = 2, pop_end = 11) %>% # rename and select columns
+  dplyr::select(year, pop_beginning, pop_end) %>%
+  filter(str_detect(year, "^[0-9]{4}$")) %>%
+  mutate(year = as.integer(year))
+
+glimpse(non_swiss)
+```
+
+```{r}
+voters <- read_excel("./data/su-d-17.02.02.04.01.xlsx", skip = 1)
+voters <- voters %>%
+  rename(year = 1, population = 3, right_to_vote = 4, voting = 5, proportion_voted = 6) %>%
+  select(-2)
+glimpse(voters)
+```
+
+There are annotations added as e.g. "4)" at the end of an existing data cell, e.g. for year 1939 or the population in 2019. I do not mind losing the 1939 data as some cantons apparently were missing and the numbers take an awkward drop. I'd rather keep the 2019 data though...
+
+```{r}
+voters <- voters %>%
+  tidyr::separate(population, into = c("population", "addendum"), sep="[[:space:]]")
+glimpse(voters)
+```
+
+Also, the population number in 2019 is given with ' whereas all the other numbers do not have this!
+
+```{r}
+voters <- voters %>%
+  select(-addendum) %>%
+  filter(str_detect(year, "^[0-9]{4}$")) %>%
+  mutate(year = as.integer(year)) %>%
+  mutate(population = readr::parse_number(population,
+                                          locale = locale(decimal_mark = ".", grouping_mark = "'")))
+```
+
+## some sanity check plots
+
+sanity check plots do not need to be nice ;-)
+
+```{r}
+ggplot(mapping = aes(x = year)) +
+  geom_line(swiss, mapping = aes(y = pop_end)) +
+  geom_line(non_swiss, mapping = aes(y = pop_end)) +
+  expand_limits(y = 0)
+```
+
+```{r}
+voters %>%
+  ggplot(mapping = aes(x=year)) +
+  geom_line(mapping = aes(y = population)) +
+  geom_line(mapping = aes(y = right_to_vote)) +
+  geom_line(mapping = aes(y = voting))
+```
+
+you can easily see when women were added to the pool of people allowed to vote!
+plus the plateau of the latest total population value, which apparently was 3 years behind (i.e. really is the value of 2016 rather than 2019)
+
+not yet ideal. more data-munching:
+
+combine swiss and non-swiss into the same tibble and calculate total
+
+```{r}
+pop <- swiss %>%
+  full_join(non_swiss, by = "year", suffix = c("_ch", "_non_ch")) %>%
+  mutate(sum_end = pop_end_ch + pop_end_non_ch) %>%
+  mutate(sum_beginning = pop_beginning_ch + pop_beginning_non_ch)
+glimpse(pop)
+```
+
+but long format would be easier!
+```{r}
+# let's only take the end-of-year values
+pop <- pop %>%
+  select(!contains("beginning")) %>%
+  rename(ch = pop_end_ch, non_ch = pop_end_non_ch, total = sum_end)
+
+pop_long <- pop %>%
+  pivot_longer(cols = !year,names_to = "category", values_to = "population")
+```
+
+
+and quick plot
+```{r}
+pop_long %>%
+  ggplot(mapping = aes(x = year, y = population, color = category)) + 
+  geom_line()
+```
+
+have this as a stacked area plot
+```{r}
+pop_long %>%
+  filter(category != "total") %>%
+  ggplot(mapping = aes(x = year, y = population, fill = category)) + 
+  geom_area(color="white")
+```
+
+I should convert the category to a factor
+```{r}
+pop_long <- pop_long %>%
+  filter(category != "total") %>%
+  mutate(category = factor(category, levels = c("ch", "non_ch")))
+```
+
+
+
+```{r}
+pop_long %>%
+  ggplot(mapping = aes(x = year, y = population, fill = fct_rev(category))) + 
+  geom_area(size=.5, colour="white", position="stack", alpha=0.8)
+```
+
+put the voters in there as well to see how well the total population numbers align:
+
+```{r}
+pop_long %>%
+  ggplot(mapping = aes(x = year)) + 
+  geom_area(mapping = aes(y = population, fill = fct_rev(category)),
+            size=.5, colour="white", position="stack", alpha=0.8) +
+  geom_line(voters, mapping = aes(y = population), color="black", size = 2) +
+  geom_line(voters, mapping = aes(y = voting), size = 2) +
+  geom_line(voters, mapping = aes(x = year, y = right_to_vote), size = 2)
+```
+
+total population from the voters tibble and from the swiss and non swiss nationals is close enough - take only the latter
+
+filter the voters so that also only data since 1951 is shown
+```{r}
+voters_to_plot <- voters %>%
+  filter(year > 1950)
+```
+
+```{r}
+pop_long %>%
+  ggplot(mapping = aes(x = year)) + 
+  geom_area(mapping = aes(y = population, fill = fct_rev(category)),
+            size=.5, colour="white", position="stack", alpha=0.8) +
+  geom_line(voters_to_plot, mapping = aes(y = right_to_vote), size = 1, color = "black") +
+  scale_y_continuous(labels = label_comma(big.mark = "'", scale = 0.001))
+```
+
+`{scales}` [package](https://scales.r-lib.org/reference/index.html) is quite for improving the tick labels! apply both a formatting (using the tick as a thousand separator) and a scale (showing 1000 rather than 1 people per unit)
+
+plot with better labels
+```{r}
+pop_long %>%
+  ggplot(mapping = aes(x = year)) + 
+  geom_area(mapping = aes(y = population, fill = fct_rev(category)),
+            size=.5, colour="white", position="stack", alpha=0.8) +
+  geom_line(voters_to_plot, mapping = aes(y = right_to_vote), size = 1, color = "black") +
+  scale_y_continuous(labels = label_comma(big.mark = "'", scale = 0.000001)) + 
+  labs(title = "Population in Switzerland since 1951",
+       x = "",
+       y = "population [million people]")
+```
+
+join voters to the population tibble so it can be plotted as an area plot as well
+but need to split the CH category, otherwise the sum will not be right anymore
+
+```{r}
+temp_voters <- voters %>%
+  select(year, right_to_vote)
+
+combo_wide <- pop %>%
+  filter(year %in% voters$year) %>%
+  select(-total) %>%
+  left_join(temp_voters, by = "year") %>%
+  mutate(ch_no_right = ch - right_to_vote) %>%
+  rename(ch_right = right_to_vote) %>%
+  select(-ch)
+
+combo_long <- combo_wide %>%
+  pivot_longer(cols = c("non_ch", "ch_right", "ch_no_right"),
+               names_to = "category",
+               values_to = "population") %>%
+  mutate(category = fct_relevel(factor(category), c("ch_right", "ch_no_right", "non_ch")))
+```
+
+
+```{r}
+combo_long %>%
+  ggplot(mapping = aes(x = year, y = population, fill = fct_rev(category))) + 
+  geom_area(size=.5, colour="white", position="stack", alpha=0.8) +
+  #geom_line(voters_to_plot, mapping = aes(y = right_to_vote), size = 1, color = "black") +
+  scale_y_continuous(labels = label_comma(big.mark = "'", scale = 0.000001)) + 
+  scale_fill_brewer(labels = c("Not Swiss", "Swiss without right to vote", "Swiss with right to vote")) +
+  guides(fill = guide_legend(title = "")) +
+  labs(title = "Population in Switzerland since 1951",
+       subtitle = "Separated by nationality and the right to vote",
+       x = "",
+       y = "population [million people]",
+       caption = "Source: BfS")
+```
+
+
+```{r}
+
+# get values to be highlighted below
+combo_wide <- combo_wide %>%
+  mutate(total = non_ch + ch_right + ch_no_right)
+
+# overall population increase
+pop_1951 <- combo_wide %>% filter(year == 1951) %>% pull(total)
+pop_2019 <- combo_wide %>% filter(year == 2019) %>% pull(total)
+total_increase <- (pop_2019 - pop_1951) / pop_1951 * 100
+
+# ch vs non_ch population increase
+pop_ch_1951 <- combo_wide %>% filter(year == 1951) %>% mutate(total_ch = ch_right + ch_no_right) %>% pull(total_ch)
+pop_non_ch_1951 <- combo_wide %>% filter(year == 1951) %>% pull(non_ch)
+pop_ch_2019 <- combo_wide %>% filter(year == 2019) %>% mutate(total_ch = ch_right + ch_no_right) %>% pull(total_ch)
+pop_non_ch_2019 <- combo_wide %>% filter(year == 2019) %>% pull(non_ch)
+increase_ch <- (pop_ch_2019 - pop_ch_1951) / pop_ch_1951 * 100
+increase_non_ch <- (pop_non_ch_2019 - pop_non_ch_1951) / pop_non_ch_1951 * 100
+
+# status 2019
+prop_non_swiss_2019 <- combo_wide %>% filter(year==2019) %>% mutate(prop = non_ch/total) %>% pull(prop)
+
+# women get the right to vote
+men_only <- combo_wide %>% filter(year == 1967) %>% pull(ch_right)
+right_to_vote_1971 <- combo_wide %>% filter(year == 1971) %>% pull(ch_right)
+
+# change in CH since late seventies
+pop_ch_1979 <- combo_wide %>% filter(year == 1979) %>% mutate(total_ch = ch_right + ch_no_right) %>% pull(total_ch)
+increase_ch_1979_2019 <- (pop_ch_2019 - pop_ch_1979) / pop_ch_1979 *100
+```
+
+### Some Summary points
+
+* Between 1951 and 2019, the population living in Switzerland increased from `r format(pop_1951, digits = 0, big.mark = "'", scientific=FALSE)` to `r format(pop_2019, digits = 0, big.mark = "'", scientific=FALSE)`, representing an increase of `r format(total_increase, digits=4)`% - almost doubled!
+* The increase is more marked for the foreign population (`r format(increase_ch, digits=4)`%) than for the Swiss population (`r format(increase_non_ch, digits=4)`%).
+* This means that in 2019, `r format(prop_non_swiss_2019, digits=4)`% of people living in Switzerland were foreigners - without the right to vote.
+* Another very obvious point is the abrupt increase in the number of people with the right to vote in the beginning of the 1970s - this is of course related to women finally (!) being allowed to vote. With this sweeping change, the number of people allowed to vote more than doubled from `r format(men_only, big.mark = "'")` in 1967 to `r format(right_to_vote_1971, big.mark="'")` in 1971.
+* Since the women got the right to vote, the proportion of Swiss nationals without the right to vote has decreased. Likely this is related to a change in demographics, with people getting older the younger ones not allowed to vote decrease in proportion.
+* In light of the rather large increase in population, it is interesting to note that both the number of signatures required for an optional initiative (to get everyone to vote on a recent decision by parliament), as well as the number of signatures required for a federal populat initiative ('Volksinitiative'), have remained stable since the late seventies. In contrast, the number of Swiss citizens in Switzerland has increased by `r format(increase_ch_1979_2019, digits=4)`%. (To give an exact proportion, the Swiss nationals living abroad would have to be included, but I did not find any numbers older than the last 3 years, so cannot quantify their change over time.)
+
+replot with arrow annotation to women's right to vote
+```{r}
+combo_long %>%
+  ggplot(mapping = aes(x = year, y = population, fill = fct_rev(category))) + 
+  geom_area(size=.5, colour="white", position="stack", alpha=0.8) +
+  annotate(geom = "curve", x = 1960, xend = 1970, y = 7500000, yend = 3600000,
+           curvature = 0.3, arrow = arrow(length = unit(2, "mm")), size=0.7) +
+  annotate(geom = "text", x = 1953, y = 8200000, label = "Women got the \nright to vote!", 
+           hjust = "left", color="black") +
+  scale_y_continuous(labels = label_comma(big.mark = "'", scale = 0.000001)) + 
+  scale_fill_brewer(labels = c("Not Swiss", "Swiss without right to vote", "Swiss with right to vote")) +
+  guides(fill = guide_legend(title = "")) +
+  labs(title = "Population in Switzerland since 1951",
+       subtitle = "Separated by nationality and the right to vote",
+       x = "",
+       y = "population [million people]",
+       caption = "Source: Bundesamt für Statistik")
+```
+
+
+Some extra links not used: 
+Number of signatures required as comparison
+
+* 100'000 for a federal popular initiative ('Volksinitiative', see [here](https://www.ch.ch/en/political-system/political-rights/initiatives/how-to-launch-a-federal-initiative/)); has been 100'000 since 1977, 50'000 before ([historisches Lexikon der Schweiz: Volksinitiative](https://hls-dhs-dss.ch/de/articles/010386/2016-07-18/))
+* 50'000 for an optional referendum (i.e. getting a vote on something parliament has recently decided, see [here](https://www.ch.ch/en/political-system/political-rights/referendums/mandatory-and-optional-referendums/)); has been 50'000 since 1978 ([historisches Lexikon der Schweiz: Referendum](https://hls-dhs-dss.ch/de/articles/010387/2011-12-23/))
+
+to be correct would have to add the Swiss living abroad...[Auslandschweizer in 2019](https://www.pxweb.bfs.admin.ch/sq/1f84b174-583c-45cb-a52e-c6fa8fa8bf78)
+
+Lebenserwartung [hier](https://www.bfs.admin.ch/bfs/de/home/statistiken/bevoelkerung/geburten-todesfaelle/lebenserwartung.assetdetail.18845607.html)
