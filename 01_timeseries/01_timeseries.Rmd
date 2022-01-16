@@ -435,7 +435,6 @@ ggsave("Swiss_pop_1951_2019.png", dpi=300, width=7, height=6)
 ## Calculate some values to be mentioned
 
 ```{r}
-
 # get values to be highlighted below
 combo_wide <- combo_wide %>%
   mutate(total = non_ch + ch_right + ch_no_right)
@@ -467,7 +466,7 @@ increase_ch_1979_2019 <- (pop_ch_2019 - pop_ch_1979) / pop_ch_1979 *100
 # change in voters since late secenties
 voters_1979 <- combo_wide %>% filter(year==1979) %>% pull(ch_right)
 voters_2019 <- combo_wide %>% filter(year==2019) %>% pull(ch_right)
-increase_voters_1979_2019 %>% (voters_2019 - voters_1979) / voters_1979 * 100
+increase_voters_1979_2019 <- (voters_2019 - voters_1979) / voters_1979 * 100
 ```
 
 ### Some Summary points

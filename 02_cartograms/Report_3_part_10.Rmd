@@ -1,0 +1,659 @@
+---
+title: "Cartography open-ended question"
+author: "Sara"
+date: "`r Sys.Date()`"
+output: 
+  rmdformats::downcute
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Getting set up
+```{r package_imports, warning=FALSE, message=FALSE}
+library(tidyverse)
+library(janitor)
+library(sf)
+```
+
+## Plotting a route on a map
+
+The other day I needed some exercise and decided to follow the signs that were installed this year 
+![Veloprüfung](./data/pic_velo.jpg)
+
+I recorded the route with Strava, and exported it as a gpx file. 
+
+Read the gpx file, following [this post](https://scriptsandstatistics.wordpress.com/2018/03/29/how-to-plot-gps-data-using-r-ggplot2-and-ggmaps/).
+```{r}
+library(plotKML)
+library(OpenStreetMap)
+library(cowplot)
+library(magick)
+```
+
+
+```{r}
+lst.rd <- readGPX('./data/Velopr_fung.gpx')
+df <- lst.rd$tracks[[1]][[1]] 
+```
+
+```{r}
+ggplot(df, aes(x = lon, y = lat)) +
+  coord_quickmap() +
+  geom_point()
+```
+
+excellent, import has worked. Now plot this on top of openstreetmap
+
+```{r}
+map <- openmap(
+  upperLeft = c(47.519, 8.695),
+  lowerRight = c(47.503, 8.72),
+  type = "osm"
+)
+```
+
+```{r}
+autoplot.OpenStreetMap(map)
+```
+
+need to adjust the projection so latitute and longitute can be plotted as x and y
+```{r}
+map_latlon <- openproj(map, projection = "+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs")
+autoplot.OpenStreetMap(map_latlon)
+```
+
+
+```{r}
+autoplot.OpenStreetMap(map_latlon) +
+  geom_point(
+    data = df,
+    mapping = aes(x = lon, y = lat),
+    color = "dodgerblue4"
+  ) +
+  theme_void()
+```
+
+Not too bad. Would be nice to add the picture somewhere?
+
+```{r}
+p <- autoplot.OpenStreetMap(map_latlon) +
+  geom_point(
+    data = df,
+    mapping = aes(x = lon, y = lat),
+    color = "dodgerblue4"
+  ) +
+  theme_void()
+
+p_save <- ggdraw(p) +
+  draw_image("./data/pic_velo.jpg", x = 1, y = 1, hjust = 1, vjust = 0.82, scale = 0.6)
+
+p_save
+```
+
+yay! :)
+save this as an image
+
+```{r}
+ggsave("./output/bike_exam_track.png", dpi=300)
+```
+
+That works but did not keep the scaling of the added image...so use the cowplot's `save_plot` to preserve scaling: 
+```{r}
+save_plot("./output/bike_exam_cowplot.png", p_save)
+```
+
+With cowplot's `save_image` the scaling is preserved
+
+## plotting some characteristics of Swiss cantons
+
+### Getting the data
+[This website](https://www.bfs.admin.ch/bfs/de/home/statistiken/politik/wahlen/frauen.html) provides an overview. Individual downloads are [general representation of women](https://www.bfs.admin.ch/bfs/de/home/statistiken/politik/wahlen/frauen.assetdetail.20324150.html), [women in the cantonal parliaments](https://www.bfs.admin.ch/bfs/de/home/statistiken/politik/wahlen/frauen.assetdetail.19784439.html) and [in the canton's Regierungen](https://www.bfs.admin.ch/bfs/de/home/statistiken/politik/wahlen/frauen.assetdetail.19784439.html)
+
+reading the file on the general representation of women
+```{r, warning=FALSE}
+women_repr <- readxl::read_excel("./data/je-d-17.02.09.01.xlsx", skip=2)
+
+# names are two-tiered... manually rename
+women_repr <- women_repr %>%
+  select(year = 1, br_male = 2, br_female = 3, 
+         kreg_male = 5, kreg_female = 6, 
+         nr_male = 8, nr_female = 9,
+         sr_male = 11, sr_female = 12,
+         kparl_male = 14, kparl_female=15) %>%
+  slice(-1) %>% # get rid of the first line - second part of index
+  drop_na(br_male) # get rid of all comments
+
+# clean year
+women_repr <- women_repr %>%
+  separate(year, into="year", sep="[ \\(]") %>%
+  separate(year, into = "year", sep = "[\\/]")
+
+# proper representation of missing values
+# this will coerce the '...' into NAs which is perfectly fine
+women_repr <- women_repr %>%
+  mutate(across(everything(), as.numeric))
+```
+
+#### a bit of a detour: women's representation over time
+
+based on [this article](https://blog.datawrapper.de/gendercolor/), I'd like to select specific colors for representing men and women. I'll follow the Telegraph's approach and relate to the suffragette movement with purple and green
+
+```{r}
+my_colors <- c("#00C4AA", "#8700F9")
+```
+
+```{r}
+women_repr_long <- women_repr %>%
+  pivot_longer(cols = c(-year), 
+               names_to = "category",
+               values_to = "value") %>%
+  separate(category, into = c("organ", "gender"), sep = "_")
+```
+
+and plot (function for plot?)
+
+```{r}
+# New facet label names
+federals.labs <- c("Bundesrat", "Nationalrat", "Ständerat")
+names(federals.labs) <- c("br", "nr", "sr")
+
+women_repr_long %>%
+  filter(organ %in% c("br", "nr", "sr")) %>%
+  ggplot(mapping = aes(x = year, y = value, fill = fct_rev(factor(gender)))) + 
+  geom_area(size=.5, colour="white", position="stack", alpha=0.8) +
+  facet_grid(rows = vars(organ), scales = "free_y",
+             labeller = labeller(organ = federals.labs)) + 
+  scale_fill_manual(values = my_colors, labels = c("male", "female")) +
+  guides(fill = guide_legend(title = "")) +
+  labs(title = "Women have always been a minority",
+       subtitle = "Federal representatives by gender since 1970",
+       x = "",
+       y = "Number of representatives",
+       caption = "Source: BfS")
+```
+
+```{r}
+# New facet label names
+cantons.labs <- c("Kantonsregierung", "Kantonsparlament")
+names(cantons.labs) <- c("kparl", "kreg")
+
+women_repr_long %>%
+  filter(organ %in% c("kparl", "kreg")) %>%
+  ggplot(mapping = aes(x = year, y = value, fill = fct_rev(factor(gender)))) + 
+  geom_area(size=.5, colour="white", position="stack", alpha=0.8) +
+  facet_grid(rows = vars(organ), scales = "free_y",
+             labeller = labeller(organ = cantons.labs)) + 
+  scale_fill_manual(values = my_colors, labels = c("male", "female")) +
+  guides(fill = guide_legend(title = "")) +
+  labs(title = "Similar picture in the cantons",
+       subtitle = "Executive and legistlative composition of the cantons by gender since 1975",
+       x = "",
+       y = "Number of representatives",
+       caption = "Source: BfS")
+
+```
+
+right, that was kind of the overview. However, I do not have spatial information in this dataset, therefore need to import new data to get the spatial information.
+
+#### women in cantonal parliaments
+
+```{r}
+women_parl <- readxl::read_excel("./data/je-d-17.02.05.01.01.xlsx", skip = 1)
+
+women_parl <- women_parl %>%
+  select(canton = 1, year = 2, female = 43, male = 44) %>%
+  slice(-1, -2) %>% # get rid of first line (part of index) and Switzerland
+  drop_na(year) # get rid of all comments
+
+# clean canton
+women_parl <- women_parl %>%
+  separate(canton, into = "canton", sep = "[[:digit:]]") %>%
+  mutate(canton = str_trim(canton, side = "both"))
+
+# make the numbers numeric type
+women_parl <- women_parl %>%
+  mutate(across(c("year", "female", "male"), as.numeric))
+
+# calculate proportion
+women_parl <- women_parl  %>%
+  mutate(prop_female_parl = female / (female + male) *100)
+```
+
+#### women in cantonal executives
+
+```{r}
+women_exec <- readxl::read_excel("./data/je-d-17.02.06.03.xlsx", skip = 1)
+
+women_exec <- women_exec %>%
+  select(canton = 1, year = 2, female = 27, male = 28) %>%
+  slice(-(1:4)) %>%
+  drop_na(year) %>%
+  mutate(across(c("year", "female", "male"), as.numeric))
+
+# clean canton
+women_exec <- women_exec %>%
+  separate(canton, into = "canton", sep = "[[:digit:]]") %>%
+  mutate(canton = str_trim(canton, side = "both"))
+
+# calculate proportion
+women_exec <- women_exec %>%
+  mutate(prop_female_exec = female / (male + female) *100)
+```
+
+check whether the names of the cantons are identical
+```{r}
+is_equal <- (women_exec %>% arrange(canton) %>% pull(canton)) == (women_parl %>% arrange(canton) %>% pull(canton))
+sum(is_equal)
+```
+
+hmm. even after trimming, there is one which is not the same. 
+```{r}
+women_exec %>%
+  arrange(canton) %>%
+  filter(!is_equal)
+```
+
+that seems to be a typo? I will change this manually
+```{r}
+women_exec <- women_exec %>%
+  arrange(canton)
+
+women_exec[!is_equal,1] <- "Solothurn"
+```
+
+rename the Appenzells to what they will be called below
+
+```{r, eval=FALSE}
+ausserrhoden_index <- (women_exec$canton == "Appenzell A. Rh.")
+innerrhoden_index <- (women_exec$canton == "Appenzell I. Rh.")
+women_exec[ausserrhoden_index, 1] <- "Appenzell Ausserrhoden"
+women_parl[ausserrhoden_index, 1] <- "Appenzell Ausserrhoden"
+women_exec[innerrhoden_index, 1] <- "Appenzell Innerrhoden"
+women_parl[innerrhoden_index, 1] <- "Appenzell Innerrhoden"
+```
+
+is there a more R-like way to do this (i.e assign new values on a subset of the tibble, with the selection based on some condition)?
+
+anyway need to have a translation tibble, as some of the cantons below are not German
+```{r}
+women_exec %>%
+  arrange(canton) %>%
+  pull(canton)
+```
+
+```{r, eval=FALSE}
+# no idea why this gives me errors with knitr (various kinds)?
+swiss %>%
+  #dplyr::distinct(name) %>%
+  arrange(name) %>%
+  pull(name)
+```
+
+ah. the order isn't quite the same. therefore make a translation tibble
+```{r}
+canton_translation <- tribble(
+  ~code, ~name, ~canton,
+  "AG", "Aargau", "Aargau",
+  "AI", "Appenzell Innerrhoden", "Appenzell I. Rh.",
+  "AR", "Appenzell Ausserrhoden", "Appenzell A. Rh.",
+  "BE", "Bern", "Bern",
+  "BL", "Basel-Landschaft", "Basel-Landschaft",
+  "BS", "Basel-Stadt", "Basel-Stadt",
+  "FR", "Fribourg", "Freiburg",
+  "GE", "Genève", "Genf",
+  "GL", "Glarus", "Glarus",
+  "GR", "Graubünden", "Graubünden",
+  "JU", "Jura", "Jura",
+  "LU", "Luzern", "Luzern",
+  "NE", "Neuchâtel", "Neuenburg",
+  "NW", "Nidwalden", "Nidwalden",
+  "OW", "Obwalden", "Obwalden",
+  "SG", "St. Gallen", "St. Gallen",
+  "SH", "Schaffhausen", "Schaffhausen",
+  "SO", "Solothurn", "Solothurn",
+  "SZ", "Schwyz", "Schwyz",
+  "TG", "Thurgau", "Thurgau",
+  "TI", "Ticino", "Tessin",
+  "UR", "Uri", "Uri",
+  "VD", "Vaud", "Waadt",
+  "VS", "Valais", "Wallis",
+  "ZG", "Zug", "Zug",
+  "ZH", "Zürich", "Zürich",
+)
+```
+
+#### generate binned/discrete values
+generate discrete values - for parliament
+```{r}
+quantile_vec_parl <- women_parl %>%
+  pull(prop_female_parl) %>%
+  quantile(probs = c(0, 0.25, 0.5, 0.75, 1), na.rm = TRUE)
+
+quantile_vec_parl
+```
+
+```{r}
+labels_parl <- tibble(
+  lab1 = quantile_vec_parl,
+  lab2 = c(quantile_vec_parl[2:length(quantile_vec_parl)], NA)
+) %>%
+  slice(1:n() - 1) %>% # We remove the last row, since it has no meaning
+  mutate_all(round, digits = 0) %>% # We remove digits after the 0
+  mutate_all(paste0, "%") %>% # We add the percentage sign after the digits
+  mutate(labs = paste(lab1, lab2, sep = " to "))
+
+labels_parl
+```
+
+generate discrete values - for executives
+
+
+```{r}
+quantile_vec_exec <- women_exec %>%
+  pull(prop_female_exec) %>%
+  quantile(probs = c(0, 0.25, 0.5, 0.75, 1), na.rm = TRUE)
+
+quantile_vec_exec
+```
+
+```{r}
+labels_exec <- tibble(
+  lab1 = quantile_vec_exec,
+  lab2 = c(quantile_vec_exec[2:length(quantile_vec_exec)], NA)
+) %>%
+  slice(1:n() - 1) %>% # We remove the last row, since it has no meaning
+  mutate_all(round, digits = 0) %>% # We remove digits after the 0
+  mutate_all(paste0, "%") %>% # We add the percentage sign after the digits
+  mutate(labs = paste(lab1, lab2, sep = " to "))
+
+labels_exec
+```
+
+
+
+```{r}
+women_exec <- women_exec %>%
+  mutate(quantiles_exec = cut(prop_female_exec, 
+                              breaks = quantile_vec_exec, 
+                              labels = labels_exec$labs,
+                              include.lowest = TRUE))
+
+women_parl <- women_parl %>%
+  mutate(quantiles_parl = cut(prop_female_parl,
+                              breaks = quantile_vec_parl,
+                              labels = labels_parl$labs,
+                              include.lowest = TRUE))
+```
+
+
+
+
+#### get the cartography part of the cartogram
+
+download the swiss boundaries from [swissBOUNDARIES on opendata.swiss](https://opendata.swiss/en/dataset/swissboundaries3d-kantonsgrenzen)
+
+```{r}
+swiss <- st_read("./data/SHAPEFILE_LV95_LN02/swissBOUNDARIES3D_1_3_TLM_KANTONSGEBIET.shp") %>%
+  janitor::clean_names()
+
+# this is 3D data, but I only need 2D! (but apparently this is not permanent??)
+swissm <- st_zm(swiss)
+
+# sanity check plot
+ggplot() +
+  geom_sf(data = swiss) +
+  theme_void() 
+```
+
+
+
+join the tibbles
+```{r}
+swiss_combo <- swiss %>%
+  dplyr::left_join(canton_translation, by = "name") %>%
+  dplyr::left_join(women_exec %>% select(canton, prop_female_exec, quantiles_exec), by = "canton") %>%
+  dplyr::left_join(women_parl %>% select(canton, prop_female_parl, quantiles_parl), by = "canton")
+```
+
+not binned, better to see the range/extremes:
+```{r}
+ggplot() +
+  geom_sf(
+    data = swiss_combo,
+    mapping = aes(fill = prop_female_exec)
+  ) +
+  scale_fill_distiller(direction = 1) +
+  theme_void() +
+  labs(title = "Proportion of women in cantons' executives",
+       caption = "Source: Bundesamt für Statistik, swisstopo",
+       fill = "% women")
+```
+
+and binned
+```{r}
+ggplot() +
+  geom_sf(
+    data = swiss_combo,
+    mapping = aes(fill = quantiles_exec)
+  ) +
+  scale_fill_brewer() +
+  theme_void() +
+  labs(title = "Proportion of women in cantons' executives",
+       caption = "Source: Bundesamt für Statistik, swisstopo",
+       fill = "% women")
+```
+
+continuous for parliament
+
+```{r}
+ggplot() +
+  geom_sf(
+    data = swiss_combo,
+    mapping = aes(fill = prop_female_parl)
+  ) +
+  scale_fill_distiller(direction = 1) +
+  theme_void() +
+  labs(title = "Proportion of women in cantons' parliaments",
+       caption = "Source: Bundesamt für Statistik, swisstopo",
+       fill = "% women")
+```
+
+see extremes better -basically one outlier in each direction!
+
+and binned:
+```{r}
+ggplot() +
+  geom_sf(
+    data = swiss_combo,
+    mapping = aes(fill = quantiles_parl)
+  ) +
+  scale_fill_brewer() +
+  theme_void() +
+  labs(title = "Proportion of women in cantons' parliaments",
+       caption = "Source: Bundesamt für Statistik, swisstopo",
+       fill = "% women")
+```
+
+
+### cartogram
+kinda nice. but we don't really need the detailed map, a cartogram would be good enough, and I want to try `{geogrid}` ;-) 
+[on github](https://github.com/jbaileyh/geogrid)
+```{r}
+library(geogrid)
+```
+
+```{r}
+swiss %>%
+  st_set_crs(327700)
+```
+
+
+```{r, warning=FALSE}
+par(mfrow = c(2, 3), mar = c(0, 0, 2, 0))
+for (i in 1:6) {
+  new_cells <- calculate_grid(shape = st_zm(swiss_combo), grid_type = "hexagonal", seed = i)
+  plot(new_cells, main = paste("Seed", i, sep = " "))
+}
+```
+
+```{r, warning=FALSE}
+par(mfrow = c(2, 3), mar = c(0, 0, 2, 0))
+for (i in 1:6) {
+  new_cells <- calculate_grid(shape = st_zm(swiss_combo), grid_type = "regular", seed = i)
+  plot(new_cells, main = paste("Seed", i, sep = " "))
+}
+```
+
+I like seed 5 of hex
+
+```{r, warning=FALSE}
+new_cells_hex <- calculate_grid(shape = st_zm(swiss_combo), grid_type = "hexagonal", seed = 5)
+resulthex <- assign_polygons(st_zm(swiss_combo), new_cells_hex)
+```
+
+```{r, eval=FALSE}
+ggplot() +
+  geom_sf(
+    data = resulthex,
+    mapping = aes(fill = prop_female_parl)
+  ) +
+  geom_sf_text(mapping = aes(label = "code", geometry = "geometry")) +
+  scale_fill_distiller(direction = 1) +
+  theme_void() +
+  labs(title = "Proportion of women in cantons' parliaments",
+       caption = "Source: Bundesamt für Statistik, swisstopo",
+       fill = "% women")
+```
+
+and here I have no idea how to solve this error :-/ I can plot it like this
+```{r}
+ggplot() +
+  geom_sf(
+    data = resulthex,
+    mapping = aes(fill = prop_female_parl)
+  ) +
+  #geom_sf_text(mapping = aes(label = "code", geometry = "geometry")) +
+  scale_fill_distiller(direction = 1) +
+  theme_void() +
+  labs(title = "Proportion of women in cantons' parliaments",
+       caption = "Source: Bundesamt für Statistik, swisstopo",
+       fill = "% women")
+```
+
+but would really need the canton labels... any idea? a bug in the geogrid package?
+
+I'll do it with the manual squares...
+```{r}
+coordinates_cantons <- tribble(
+  ~code, ~row, ~column,
+  "AG", 2, 5,
+  "AI", 3, 8,
+  "AR", 2, 8,
+  "BE", 4, 4,
+  "BL", 2, 4,
+  "BS", 1, 4,
+  "FR", 4, 3,
+  "GE", 5, 1,
+  "GL", 4, 8,
+  "GR", 4, 9,
+  "JU", 2, 3,
+  "LU", 3, 5,
+  "NE", 3, 3,
+  "NW", 4, 6,
+  "OW", 4, 5,
+  "SG", 2, 7,
+  "SH", 1, 6,
+  "SO", 3, 4,
+  "SZ", 3, 7,
+  "TG", 1, 7,
+  "TI", 5, 7,
+  "UR", 4, 7,
+  "VD", 4, 2,
+  "VS", 5, 4,
+  "ZG", 2, 6,
+  "ZH", 3, 6
+)
+```
+
+```{r}
+simple_combo <- coordinates_cantons %>%
+  dplyr::left_join(canton_translation, by = "code") %>%
+  dplyr::left_join(women_exec %>% select(canton, prop_female_exec, quantiles_exec), by = "canton") %>%
+  dplyr::left_join(women_parl %>% select(canton, prop_female_parl, quantiles_parl), by = "canton")
+```
+
+continuous plot of parliament
+```{r}
+ggplot(simple_combo, aes_string(x = "column", y = "row", label = "code")) +
+  geom_tile(aes(fill = prop_female_parl), size = 2, color = "white") +
+  geom_text(color = "grey10") +
+  theme_void() +
+  scale_fill_distiller(direction = 1) +
+  scale_y_reverse() +
+  labs(title = "Proportion of women in cantons' parliaments",
+       caption = "Source: Bundesamt für Statistik, swisstopo",
+       fill = "% women")
+```
+
+binned plot of parliament
+```{r}
+ggplot(simple_combo, aes_string(x = "column", y = "row", label = "code")) +
+  geom_tile(aes(fill = quantiles_parl), size = 2, color = "white") +
+  geom_text(color = "grey10") +
+  theme_void() +
+  scale_fill_brewer() +
+  scale_y_reverse() +
+  #theme(panel.border = element_blank()) +
+  #theme(panel.grid = element_blank()) +
+  labs(title = "Proportion of women in cantons' parliaments",
+       caption = "Source: Bundesamt für Statistik, swisstopo",
+       fill = "% women")
+```
+
+and the executives...
+
+continuous
+```{r}
+ggplot(simple_combo, aes_string(x = "column", y = "row", label = "code")) +
+  geom_tile(aes(fill = prop_female_exec), size = 2, color = "white") +
+  geom_text(color = "grey10") +
+  theme_void() +
+  scale_fill_distiller(direction = 1) +
+  scale_y_reverse() +
+  labs(title = "Proportion of women in cantons' executives",
+       caption = "Source: Bundesamt für Statistik, swisstopo",
+       fill = "% women")
+```
+
+
+and binned
+```{r}
+ggplot(simple_combo, aes_string(x = "column", y = "row", label = "code")) +
+  geom_tile(aes(fill = quantiles_exec), size = 2, color = "white") +
+  geom_text(color = "grey10") +
+  theme_void() +
+  scale_fill_brewer() +
+  scale_y_reverse() +
+  labs(title = "Proportion of women in cantons' executives",
+       caption = "Source: Bundesamt für Statistik, swisstopo",
+       fill = "% women")
+```
+
+
+## Take-aways 
+
+- geogrid did not work with text labels :-/
+- binning the data for plotting it in maps makes it easier to read, but also somewhat 'hides' the extremes, e.g. the Schwyz with only 9% of women in parliament, with NE with 58% being the other extreme
+- in general, women are still quite far from 50%!
+
+
+
+
+
+
+
+
+
+
