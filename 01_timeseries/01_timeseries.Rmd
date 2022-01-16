@@ -454,7 +454,7 @@ increase_ch <- (pop_ch_2019 - pop_ch_1951) / pop_ch_1951 * 100
 increase_non_ch <- (pop_non_ch_2019 - pop_non_ch_1951) / pop_non_ch_1951 * 100
 
 # status 2019
-prop_non_swiss_2019 <- combo_wide %>% filter(year==2019) %>% mutate(prop = non_ch/total) %>% pull(prop)
+prop_non_swiss_2019 <- combo_wide %>% filter(year==2019) %>% mutate(prop = non_ch/total*100) %>% pull(prop)
 
 # women get the right to vote
 men_only <- combo_wide %>% filter(year == 1967) %>% pull(ch_right)
@@ -463,12 +463,17 @@ right_to_vote_1971 <- combo_wide %>% filter(year == 1971) %>% pull(ch_right)
 # change in CH since late seventies
 pop_ch_1979 <- combo_wide %>% filter(year == 1979) %>% mutate(total_ch = ch_right + ch_no_right) %>% pull(total_ch)
 increase_ch_1979_2019 <- (pop_ch_2019 - pop_ch_1979) / pop_ch_1979 *100
+
+# change in voters since late secenties
+voters_1979 <- combo_wide %>% filter(year==1979) %>% pull(ch_right)
+voters_2019 <- combo_wide %>% filter(year==2019) %>% pull(ch_right)
+increase_voters_1979_2019 %>% (voters_2019 - voters_1979) / voters_1979 * 100
 ```
 
 ### Some Summary points
 
 * Between 1951 and 2019, the population living in Switzerland increased from `r format(pop_1951, digits = 0, big.mark = "'", scientific=FALSE)` to `r format(pop_2019, digits = 0, big.mark = "'", scientific=FALSE)`, representing an increase of `r format(total_increase, digits=4)`% - almost doubled!
-* The increase is more marked for the foreign population (`r format(increase_ch, digits=4)`%) than for the Swiss population (`r format(increase_non_ch, digits=4)`%).
+* The increase is more marked for the foreign population (`r format(increase_non_ch, digits=4)`%) than for the Swiss population (`r format(increase_ch, digits=4)`%).
 * This means that in 2019, `r format(prop_non_swiss_2019, digits=4)`% of people living in Switzerland were foreigners - without the right to vote.
 * Another very obvious point is the abrupt increase in the number of people with the right to vote in the beginning of the 1970s - this is of course related to women finally (!) being allowed to vote. With this sweeping change, the number of people allowed to vote more than doubled from `r format(men_only, big.mark = "'")` in 1967 to `r format(right_to_vote_1971, big.mark="'")` in 1971.
 * Since the women got the right to vote, the proportion of Swiss nationals without the right to vote has decreased. Likely this is related to a change in demographics, with people getting older the younger ones not allowed to vote decrease in proportion.
