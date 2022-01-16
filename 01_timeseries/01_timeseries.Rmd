@@ -172,41 +172,25 @@ pop_long %>%
 
 total population from the voters tibble and from the swiss and non swiss nationals is close enough - take only the latter
 
-filter the voters so that also only data since 1951 is shown
-```{r}
-voters_to_plot <- voters %>%
-  filter(year > 1950)
-```
+use `{scales}` [package](https://scales.r-lib.org/reference/index.html) is quite for improving the tick labels! apply both a formatting (using the tick as a thousand separator) and a scale (showing 1000 rather than 1 people per unit)
 
 ```{r}
 pop_long %>%
   ggplot(mapping = aes(x = year)) + 
   geom_area(mapping = aes(y = population, fill = fct_rev(category)),
             size=.5, colour="white", position="stack", alpha=0.8) +
-  geom_line(voters_to_plot, mapping = aes(y = right_to_vote), size = 1, color = "black") +
+  geom_line(voters, mapping = aes(y = right_to_vote), size = 1, color = "black") +
   scale_y_continuous(labels = label_comma(big.mark = "'", scale = 0.001))
 ```
 
-`{scales}` [package](https://scales.r-lib.org/reference/index.html) is quite for improving the tick labels! apply both a formatting (using the tick as a thousand separator) and a scale (showing 1000 rather than 1 people per unit)
 
-plot with better labels
-```{r}
-pop_long %>%
-  ggplot(mapping = aes(x = year)) + 
-  geom_area(mapping = aes(y = population, fill = fct_rev(category)),
-            size=.5, colour="white", position="stack", alpha=0.8) +
-  geom_line(voters_to_plot, mapping = aes(y = right_to_vote), size = 1, color = "black") +
-  scale_y_continuous(labels = label_comma(big.mark = "'", scale = 0.000001)) + 
-  labs(title = "Population in Switzerland since 1951",
-       x = "",
-       y = "population [million people]")
-```
+filter the voters so that also only data since 1951 is shown and add it to the combo tibble
 
-join voters to the population tibble so it can be plotted as an area plot as well
-but need to split the CH category, otherwise the sum will not be right anymore
+need to split the CH category, otherwise the sum will not be right anymore
 
 ```{r}
 temp_voters <- voters %>%
+  filter(year > 1950) %>%
   select(year, right_to_vote)
 
 combo_wide <- pop %>%
@@ -225,6 +209,10 @@ combo_long <- combo_wide %>%
 ```
 
 
+## first time basic plot reached
+
+plot with better labels
+
 ```{r}
 combo_long %>%
   ggplot(mapping = aes(x = year, y = population, fill = fct_rev(category))) + 
@@ -240,6 +228,211 @@ combo_long %>%
        caption = "Source: BfS")
 ```
 
+much better!
+
+## Add annotation
+highlighting when women got the right to vote
+
+```{r}
+p <- combo_long %>%
+  ggplot(mapping = aes(x = year, y = population, fill = fct_rev(category))) + 
+  geom_area(size=.5, colour="white", position="stack", alpha=0.8) +
+  annotate(geom = "curve", x = 1960, xend = 1970, y = 7500000, yend = 3600000,
+           curvature = 0.3, arrow = arrow(length = unit(2, "mm")), size=0.7) +
+  annotate(geom = "text", x = 1953, y = 8200000, label = "Women got the \nright to vote!", 
+           hjust = "left", color="black") +
+  scale_y_continuous(labels = label_comma(big.mark = "'", scale = 0.000001)) + 
+  labs(title = "Population in Switzerland since 1951",
+       subtitle = "Separated by nationality and the right to vote",
+       x = "",
+       y = "population [million people]",
+       caption = "Source: Bundesamt für Statistik")
+p + scale_fill_brewer(labels = c("Not Swiss", "Swiss without right to vote", "Swiss with right to vote")) +
+  guides(fill = guide_legend(title = ""))
+  
+```
+
+## Play around with different themes
+```{r}
+p + ggthemes::theme_economist()
+```
+
+```{r}
+p + ggthemes::theme_fivethirtyeight()
+```
+
+Additional themes from `{ggthemr}` package. This is not on CRAN yet so has to be installed with `devtools::install_github('Mikata-Project/ggthemr')`
+
+
+```{r}
+ggthemr::ggthemr("dust")
+p
+```
+
+I quite like this one! Will need some tweaks though
+
+## Play around with legend
+
+First, need to improve the legend labels
+
+the `{ggthemr}` package has a `scale_color_ggthemr_d` function, but none for the fill. As I also would like to change the order of the colors, I'll manually extract the colors from a plot above with a colorpicker and add it with a manual color scale
+
+```{r}
+my_colors <- rev(c("#ADA08F", "#E18D7A", "#F1B888"))
+my_labels <- c("Not Swiss", "Swiss without right to vote", "Swiss with right to vote")
+```
+
+```{r}
+q <- p + scale_fill_manual(values = my_colors, labels = my_labels) +
+  guides(fill = guide_legend(title = ""))
+
+q  
+```
+
+
+Now the legend on the right hand side takes a lot of space, and creates a lot of whitespace. Could change this by placing the legend above the plot
+
+```{r}
+q + theme(legend.position = "top")
+```
+
+or below the plot
+```{r}
+q + theme(legend.position = "bottom")
+```
+
+or in the subtitle - try that below
+
+## more modifications
+
+### color of the annotation
+now the black stands out, make it the same color as the font of the theme (again with manual colorpick)
+
+```{r}
+color_font <- "#5B4F41"
+```
+
+actually change it below
+
+## whole plot in one go
+
+repeat everything needed
+```{r}
+my_colors <- c("#ADA08F", "#E18D7A", "#F1B888")
+my_labels <- c("Not Swiss", "Swiss without right to vote", "Swiss with right to vote")
+```
+
+
+```{r}
+ggthemr::ggthemr("dust", type = "outer")
+combo_long %>%
+  ggplot(mapping = aes(x = year, y = population, fill = fct_rev(category))) + 
+  geom_area(size=.5, colour="white", position="stack", alpha=0.8) +
+  annotate(geom = "curve", x = 1959, xend = 1970, y = 6800000, yend = 3600000,
+           curvature = 0.3, arrow = arrow(length = unit(2, "mm")), size=0.7,
+           color=color_font) +
+  annotate(geom = "text", x = 1952, y = 7600000, label = "Women got the \nright to vote!", 
+           hjust = "left", color=color_font) +
+  scale_y_continuous(labels = label_comma(big.mark = "'", scale = 0.000001)) + 
+  labs(title = "Population in Switzerland since 1951",
+       subtitle = "Separated by nationality and whether they have the right to vote<br> <br>
+       <b style='color:#F1B888'> Swiss with right to vote</b>,  <b style='color:#E18D7A'>Swiss without the right to vote</b>, <b style='color:#ADA08F'>not Swiss</b> <br>",
+       x = "",
+       y = "population [million people]",
+       caption = "Source: Swiss Federal Statistical Office") +
+  scale_fill_manual(values = my_colors, labels = my_labels) +
+  guides(fill = guide_legend(title = "")) +
+  theme(plot.subtitle = ggtext::element_markdown(),
+        legend.position = "none")
+```
+
+actually too much text to have it in color - go back to normal legend
+
+```{r}
+ggthemr::ggthemr("dust", type = "outer")
+combo_long %>%
+  ggplot(mapping = aes(x = year, y = population, fill = fct_rev(category))) + 
+  geom_area(size=.5, colour="white", position="stack", alpha=0.8) +
+  annotate(geom = "curve", x = 1959, xend = 1970, y = 6800000, yend = 3600000,
+           curvature = 0.3, arrow = arrow(length = unit(2, "mm")), size=0.7,
+           color=color_font) +
+  annotate(geom = "text", x = 1952, y = 7600000, label = "Women got the \nright to vote!", 
+           hjust = "left", color=color_font) +
+  scale_y_continuous(labels = label_comma(big.mark = "'", scale = 0.000001)) + 
+  labs(title = "Population in Switzerland since 1951",
+       subtitle = "Separated by nationality and whether they have the right to vote\n",
+       x = "",
+       y = "population [million people]",
+       caption = "Source: Swiss Federal Statistical Office") +
+  scale_fill_manual(values = my_colors, labels = my_labels) +
+  guides(fill = guide_legend(title = "")) +
+  theme(legend.position = "top")
+```
+
+and which way round to have the colors? the way it is above, the orange/red colors show people with a Swiss passport, and the 'outgroup' of the foreigners is separated also by color
+
+however, I could also reverse it:
+```{r}
+ggthemr::ggthemr("dust", type = "outer")
+combo_long %>%
+  ggplot(mapping = aes(x = year, y = population, fill = fct_rev(category))) + 
+  geom_area(size=.5, colour="white", position="stack", alpha=0.8) +
+  annotate(geom = "curve", x = 1959, xend = 1970, y = 6800000, yend = 3600000,
+           curvature = 0.3, arrow = arrow(length = unit(2, "mm")), size=0.7,
+           color=color_font) +
+  annotate(geom = "text", x = 1952, y = 7600000, label = "Women got the \nright to vote!", 
+           hjust = "left", color=color_font) +
+  scale_y_continuous(labels = label_comma(big.mark = "'", scale = 0.000001)) + 
+  labs(title = "Population in Switzerland since 1951",
+       subtitle = "Separated by nationality and whether they have the right to vote\n",
+       x = "",
+       y = "population [mio]",
+       caption = "Source: Swiss Federal Statistical Office") +
+  scale_fill_manual(values = rev(my_colors), labels = my_labels) +
+  guides(fill = guide_legend(title = "")) +
+  theme(legend.position = "top")
+```
+
+I like here that the darkest color is at the bottom - I think this is prettier to look at in terms of the plot itself. It does somehow group the swiss without the right to vote and the non-Swiss, in opposition to the Swiss people with the right to vote... maybe strange in terms of nationality but since I am also highlighting the increase in the voter group, I think it is ok. I will got with this one
+
+## Final plot
+
+also align title and subtitle differently and make the font size of the caption smaller
+```{r}
+ggthemr::ggthemr("dust", type = "outer")
+final_plot <- combo_long %>%
+  ggplot(mapping = aes(x = year, y = population, fill = fct_rev(category))) + 
+  geom_area(size=.5, colour="white", position="stack", alpha=0.8) +
+  annotate(geom = "curve", x = 1959, xend = 1970, y = 6800000, yend = 3600000,
+           curvature = 0.3, arrow = arrow(length = unit(2, "mm")), size=0.7,
+           color=color_font) +
+  annotate(geom = "text", x = 1952, y = 7600000, label = "Women got the \nright to vote!", 
+           hjust = "left", color=color_font) +
+  scale_y_continuous(labels = label_comma(big.mark = "'", scale = 0.000001)) + 
+  labs(title = "Population in Switzerland since 1951",
+       subtitle = "Separated by nationality and whether they have the right to vote\n",
+       x = "",
+       y = "population [mio]",
+       caption = "Source: Swiss Federal Statistical Office") +
+  scale_fill_manual(values = rev(my_colors), labels = my_labels) +
+  guides(fill = guide_legend(title = "")) +
+  theme(legend.position = "top",
+        plot.title = element_text(hjust=0.5),
+        plot.subtitle = element_text(hjust = 0.5),
+        plot.caption = element_text(size = 8))
+final_plot
+```
+
+```{r}
+ggsave("Swiss_pop_1951_2019.png", dpi=300, width=7, height=6)
+```
+
+## Open points
+
+- I am not entirely happy about the y axis label
+- somewhat questionable whether instead of reducing the population data to once every 4 years, I should have filled the voter data to every year. however, filling seems more (potentially) wrong than leaving out, so left it as is.
+
+## Calculate some values to be mentioned
 
 ```{r}
 
@@ -281,32 +474,16 @@ increase_ch_1979_2019 <- (pop_ch_2019 - pop_ch_1979) / pop_ch_1979 *100
 * Since the women got the right to vote, the proportion of Swiss nationals without the right to vote has decreased. Likely this is related to a change in demographics, with people getting older the younger ones not allowed to vote decrease in proportion.
 * In light of the rather large increase in population, it is interesting to note that both the number of signatures required for an optional initiative (to get everyone to vote on a recent decision by parliament), as well as the number of signatures required for a federal populat initiative ('Volksinitiative'), have remained stable since the late seventies. In contrast, the number of Swiss citizens in Switzerland has increased by `r format(increase_ch_1979_2019, digits=4)`%. (To give an exact proportion, the Swiss nationals living abroad would have to be included, but I did not find any numbers older than the last 3 years, so cannot quantify their change over time.)
 
-replot with arrow annotation to women's right to vote
-```{r}
-combo_long %>%
-  ggplot(mapping = aes(x = year, y = population, fill = fct_rev(category))) + 
-  geom_area(size=.5, colour="white", position="stack", alpha=0.8) +
-  annotate(geom = "curve", x = 1960, xend = 1970, y = 7500000, yend = 3600000,
-           curvature = 0.3, arrow = arrow(length = unit(2, "mm")), size=0.7) +
-  annotate(geom = "text", x = 1953, y = 8200000, label = "Women got the \nright to vote!", 
-           hjust = "left", color="black") +
-  scale_y_continuous(labels = label_comma(big.mark = "'", scale = 0.000001)) + 
-  scale_fill_brewer(labels = c("Not Swiss", "Swiss without right to vote", "Swiss with right to vote")) +
-  guides(fill = guide_legend(title = "")) +
-  labs(title = "Population in Switzerland since 1951",
-       subtitle = "Separated by nationality and the right to vote",
-       x = "",
-       y = "population [million people]",
-       caption = "Source: Bundesamt für Statistik")
-```
 
 
-Some extra links not used: 
-Number of signatures required as comparison
+### Some extra links not used: 
 
-* 100'000 for a federal popular initiative ('Volksinitiative', see [here](https://www.ch.ch/en/political-system/political-rights/initiatives/how-to-launch-a-federal-initiative/)); has been 100'000 since 1977, 50'000 before ([historisches Lexikon der Schweiz: Volksinitiative](https://hls-dhs-dss.ch/de/articles/010386/2016-07-18/))
-* 50'000 for an optional referendum (i.e. getting a vote on something parliament has recently decided, see [here](https://www.ch.ch/en/political-system/political-rights/referendums/mandatory-and-optional-referendums/)); has been 50'000 since 1978 ([historisches Lexikon der Schweiz: Referendum](https://hls-dhs-dss.ch/de/articles/010387/2011-12-23/))
+*Number of signatures required as comparison*
 
-to be correct would have to add the Swiss living abroad...[Auslandschweizer in 2019](https://www.pxweb.bfs.admin.ch/sq/1f84b174-583c-45cb-a52e-c6fa8fa8bf78)
+- 100'000 for a federal popular initiative ('Volksinitiative', see [here](https://www.ch.ch/en/political-system/political-rights/initiatives/how-to-launch-a-federal-initiative/)); has been 100'000 since 1977, 50'000 before ([historisches Lexikon der Schweiz: Volksinitiative](https://hls-dhs-dss.ch/de/articles/010386/2016-07-18/))
+- 50'000 for an optional referendum (i.e. getting a vote on something parliament has recently decided, see [here](https://www.ch.ch/en/political-system/political-rights/referendums/mandatory-and-optional-referendums/)); has been 50'000 since 1978 ([historisches Lexikon der Schweiz: Referendum](https://hls-dhs-dss.ch/de/articles/010387/2011-12-23/))
 
-Lebenserwartung [hier](https://www.bfs.admin.ch/bfs/de/home/statistiken/bevoelkerung/geburten-todesfaelle/lebenserwartung.assetdetail.18845607.html)
+*other extra stuff*
+
+- to be correct would have to add the Swiss living abroad...[Auslandschweizer in 2019](https://www.pxweb.bfs.admin.ch/sq/1f84b174-583c-45cb-a52e-c6fa8fa8bf78)
+- Lebenserwartung [hier](https://www.bfs.admin.ch/bfs/de/home/statistiken/bevoelkerung/geburten-todesfaelle/lebenserwartung.assetdetail.18845607.html)
