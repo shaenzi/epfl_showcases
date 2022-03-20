@@ -81,7 +81,10 @@ p1 <- women_repr_long %>%
        x = "",
        y = "Number of representatives",
        caption = "Source: BfS") +
-  ggthemes::theme_hc()
+  ggthemes::theme_hc() +
+  theme(panel.background = element_rect(fill = "transparent", colour = NA),  
+        plot.background = element_rect(fill = "transparent", colour = NA),
+        legend.background = element_rect(fill = "transparent", colour = NA))
 p1
 ```
 
@@ -109,7 +112,10 @@ p2 <- women_repr_long %>%
        x = "",
        y = "Number of representatives",
        caption = "Source: BfS") +
-  ggthemes::theme_hc()
+  ggthemes::theme_hc()+
+  theme(panel.background = element_rect(fill = "transparent", colour = NA),  
+        plot.background = element_rect(fill = "transparent", colour = NA),
+        legend.background = element_rect(fill = "transparent", colour = NA))
 p2
 ```
 
