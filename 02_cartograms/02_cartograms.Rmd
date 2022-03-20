@@ -1,5 +1,5 @@
 ---
-title: "Cartography open-ended question"
+title: "Female representation in Swiss cantons"
 author: "Sara"
 date: "`r Sys.Date()`"
 output: 
@@ -10,7 +10,6 @@ output:
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-# Getting set up
 ```{r package_imports, warning=FALSE, message=FALSE}
 library(tidyverse)
 library(janitor)
@@ -18,10 +17,7 @@ library(sf)
 library(geofacet)
 ```
 
-
-## plotting some characteristics of Swiss cantons
-
-### Getting the data
+# Getting the data
 [This website](https://www.bfs.admin.ch/bfs/de/home/statistiken/politik/wahlen/frauen.html) provides an overview. Individual downloads are [general representation of women](https://www.bfs.admin.ch/bfs/de/home/statistiken/politik/wahlen/frauen.assetdetail.20324150.html), [women in the cantonal parliaments](https://www.bfs.admin.ch/bfs/de/home/statistiken/politik/wahlen/frauen.assetdetail.19784439.html) and [in the canton's Regierungen](https://www.bfs.admin.ch/bfs/de/home/statistiken/politik/wahlen/frauen.assetdetail.19784439.html)
 
 reading the file on the general representation of women
@@ -49,7 +45,7 @@ women_repr <- women_repr %>%
   mutate(across(everything(), as.numeric))
 ```
 
-#### a bit of a detour: women's representation over time
+# a bit of a detour: women's representation over time
 
 based on [this article](https://blog.datawrapper.de/gendercolor/), I'd like to select specific colors for representing men and women. I'll follow the Telegraph's approach and relate to the suffragette movement with purple and green
 
@@ -125,7 +121,7 @@ ggsave("cantonal_representatives.png", plot = p2, dpi=300,
 
 right, that was kind of the overview. However, I do not have spatial information in this dataset, therefore need to import new data to get the spatial information.
 
-#### women in cantonal parliaments
+# women in cantonal parliaments
 
 ```{r}
 women_parl <- readxl::read_excel("./data/je-d-17.02.05.01.01.xlsx", skip = 1)
@@ -149,7 +145,7 @@ women_parl <- women_parl  %>%
   mutate(prop_female_parl = female / (female + male) *100)
 ```
 
-#### women in cantonal executives
+# women in cantonal executives
 
 ```{r}
 women_exec <- readxl::read_excel("./data/je-d-17.02.06.03.xlsx", skip = 1)
@@ -243,7 +239,7 @@ canton_translation <- tribble(
 )
 ```
 
-#### generate binned/discrete values
+## generate binned/discrete values
 generate discrete values - for parliament
 ```{r}
 quantile_vec_parl <- women_parl %>%
@@ -309,7 +305,7 @@ women_parl <- women_parl %>%
 
 
 
-#### get the cartography part of the cartogram
+# get the cartography part of the choropleth
 
 download the swiss boundaries from [swissBOUNDARIES on opendata.swiss](https://opendata.swiss/en/dataset/swissboundaries3d-kantonsgrenzen)
 
@@ -396,7 +392,7 @@ ggplot() +
 ```
 
 
-### cartogram
+# Turning the cantons into a grid
 
 
 grid design for CH cantons from [here](https://hafen.github.io/grid-designer/#data=code%2Cname_local%2Cname_de%2Cname_fr%2Cname_it%2Cname_en%2Crow%2Ccol%0ASH%2CSchaffhausen%2CSchaffhausen%2CSchaffhouse%2CSciaffusa%2CSchaffhausen%2C2%2C6%0ABS%2CBasel-Stadt%2CBasel-Stadt%2CB%C3%A2le-Ville%2CBasilea%20Citt%C3%A0%2CBasel-City%2C2%2C4%0ATG%2CThurgau%2CThurgau%2CThurgovie%2CTurgovia%2CThurgovia%2C3%2C7%0AAG%2CAargau%2CAargau%2CArgovie%2CArgovia%2CArgovia%2C3%2C5%0AJU%2CJura%2CJura%2CJura%2CJura%2CJura%2C3%2C3%0ABL%2CBasel-Landschaft%2CBasel-Landschaft%2CB%C3%A2le-Campagne%2CBasilea%20Campagna%2CBasel-Country%2C3%2C4%0AZH%2CZ%C3%BCrich%2CZ%C3%BCrich%2CZurich%2CZurigo%2CZurich%2C3%2C6%0AAI%2CAppenzell-Innerrhoden%2CAppenzell-Innerrhoden%2CAppenzell%20Rhodes-Int%C3%A9rieures%2CAppenzello%20Interno%2CAppenzell%20Inner-Rhodes%2C3%2C8%0AVD%2CVaud%2CWaadt%2CVaud%2CVaud%2CVaud%2C4%2C2%0ANE%2CNeuch%C3%A2tel%2CNeuenburg%2CNeuch%C3%A2tel%2CNeuch%C3%A2tel%2CNeuch%C3%A2tel%2C4%2C3%0ASO%2CSolothurn%2CSolothurn%2CSoleure%2CSoletta%2CSolothurn%2C4%2C4%0ALU%2CLuzern%2CLuzern%2CLucerne%2CLucerna%2CLucerne%2C4%2C5%0AZG%2CZug%2CZug%2CZoug%2CZugo%2CZug%2C4%2C6%0ASG%2CSt.Gallen%2CSt.Gallen%2CSaint-Gall%2CSan%20Gallo%2CSt.Gallen%2C4%2C7%0AAR%2CAppenzell-Ausserrhoden%2CAppenzell-Ausserrhoden%2CAppenzell%20Rhodes-Ext%C3%A9rieures%2CAppenzello%20Esterno%2CAppenzell%20Outer-Rhodes%2C4%2C8%0AFR%2CFribourg%2CFreiburg%2CFribourg%2CFriburgo%2CFribourg%2C5%2C3%0ABE%2CBern%2CBern%2CBerne%2CBerna%2CBern%2C5%2C4%0ANW%2CNidwalden%2CNidwalden%2CNidwald%2CNidvaldo%2CNidwalden%2C5%2C5%0AGE%2CGen%C3%A8ve%2CGenf%2CGen%C3%A8ve%2CGinevra%2CGeneva%2C5%2C1%0ASZ%2CSchwyz%2CSchwyz%2CSchwytz%2CSvitto%2CSchwyz%2C5%2C6%0AGL%2CGlarus%2CGlarus%2CGlaris%2CGlarona%2CGlarus%2C5%2C7%0AGR%2CGraub%C3%BCnden%2CGraub%C3%BCnden%2CGrisons%2CGrigioni%2CGrisons%2C5%2C9%0AVS%2CValais%2CWallis%2CValais%2CVallese%2CValais%2C6%2C3%0AOW%2CObwalden%2CObwalden%2CObwald%2CObvaldo%2CObwalden%2C6%2C5%0AUR%2CUri%2CUri%2CUri%2CUri%2CUri%2C6%2C6%0ATI%2CTicino%2CTessin%2CTessin%2CTicino%2CTicino%2C7%2C6)
