@@ -1,0 +1,208 @@
+---
+title: "Networks visualisation"
+author: "Sara"
+date: "`r format(Sys.Date(), '%d %b %Y')`"
+output: 
+  rmdformats::downcute
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r warning=FALSE, message=FALSE}
+library(tidygraph)
+library(ggraph)
+library(dplyr)
+library(ggtext)
+```
+
+# Intro: the task
+For my visualisation course, I was asked to create a network visualisation with a network of my own choice. I haven't worked with network outside my course before, but with my neurosccience background brains seemed a pretty apt choice. And starting simple seems always a good idea, so I thought I'd go with the connectome of *C. elegans*, which was the first that had been completely mapped.
+
+## Brains as networks
+
+As neurons are also connected to each other, they can be represented as a network. The human brain with its approximately 89 Bio neurons is still way out, but there is one modest creature whose connectome has been known for over 30 years: *C. elegans*. These tiny worms (you'll need a microscope) all have exactly 302 neurons, quite substantial compared to the total number of approximately 1000 cells. 
+The so-called connectome is based on electron micrographs, where images are segmented, connections identified, and then neurons 'put back together', eventually - after a ton of work - yielding some physical connections. or at least the physical connections of 5 worms at one point in time...
+The dataset as a network is described [here](http://konect.cc/networks/dimacs10-celegansneural/)
+direct data download [here](konect.cc/files/download.tsv.dimacs10-celegansneural.tar.bz2)
+
+```{r}
+original_data <- readr::read_delim("./data/dimacs10-celegansneural/out.dimacs10-celegansneural", delim = " ") %>%
+  janitor::clean_names() %>%
+  tidyr::separate(col = percent, into = c("from", "to", "weight")) %>%
+  select(-asym, -posweighted)
+```
+
+this is basically the edge tibble
+
+```{r}
+union(unique(original_data$from), unique(original_data$to)) %>%
+  as.numeric() %>%
+  sort()
+```
+
+I thought it was 302 neurons... well, 297 is close enough
+
+```{r}
+connectome <- tbl_graph(edges = original_data, directed = TRUE)
+```
+
+I would have hoped to have some more information, such as the some sort of cell type, which could serve as a grouping variable. Without it, there is not so much to be visualised, but let's try anyway
+
+```{r}
+ggraph(connectome, layout = "star") +
+  geom_edge_link(
+    #aes(width = weight),
+    #color = "white", 
+    arrow = arrow(length = unit(2, "mm")), end_cap = circle(2, "mm"),
+    alpha = 0.5
+  ) +
+  geom_node_point(size = 4, alpha = 0.5)
+```
+
+well, that looks a bit like art... actually turn it into colorful art
+
+```{r}
+library(MetBrewer)
+```
+
+```{r}
+pal <- met.brewer(name="Wissing", n=5, type = "discrete")
+pal2 <- met.brewer(name="Demuth", type="continuous")
+```
+
+
+```{r}
+connectome %>%
+  activate(edges) %>%
+  mutate(weight = as.numeric(weight)) %>%
+  mutate(weight_quant = cut(weight, breaks=10)) %>%
+ggraph(layout = "star") +
+  geom_edge_link(
+    aes(alpha = weight, color=weight_quant),
+    #color = "white", 
+    arrow = arrow(length = unit(2, "mm")), end_cap = circle(2, "mm"),
+    alpha = 0.5
+  ) +
+  geom_node_point(size = 4, alpha = 0.5, shape=16, color=pal[5]) +
+  scale_alpha(range =c(0.2, 0.8)) +
+  scale_edge_color_manual(values=pal2, guide="none") +
+  theme(plot.background = element_rect(fill = pal[4], color = pal[4]),
+        panel.background = element_rect(fill = pal[4], color = pal[4]))
+```
+
+in the meantime I found an updated connectome from the [wormatlas](https://www.wormatlas.org/), there is a [wormwiring excel](https://www.wormatlas.org/images/NeuronConnect.xls)
+(and more connectomes can be found [here](https://neurodata.io/project/connectomes/) as well)
+
+```{r}
+updated_data <- readxl::read_excel("./data/NeuronConnect.xls")
+glimpse(updated_data)
+```
+
+the first two columns are the nurons 'from' and 'to', the third column seems to denote the type of the connection (e.g. different synapse types), and the fourth one most likely is the number of these connections
+
+```{r}
+connectome_updated <- tbl_graph(edges=updated_data)
+```
+
+```{r}
+ggraph(connectome_updated, layout = "nicely") +
+  geom_edge_link(
+    #aes(width = weight),
+    #color = "white", 
+    arrow = arrow(length = unit(2, "mm")), end_cap = circle(2, "mm"),
+    alpha = 0.5
+  ) +
+  geom_node_point(size = 4, alpha = 0.5) +
+  geom_node_text(aes(label=name))
+
+```
+
+hmm, interesting outliers... according to [the description of the individual neurons](https://www.wormatlas.org/neurons/Individual%20Neurons/Neuronframeset.html) avfl and avfr are interneurons, meaning they should have connections on either side... strange that they do not. since all the layout and clustering algorithms do not cope well with something so separate, drop these
+
+```{r}
+connectome_updated <- connectome_updated %>%
+  activate(nodes) %>%
+  filter(!name %in% c("avfl", "avfr"))
+```
+
+Layout options for showing the network: kk could make sense, nicely and fr pretty similar, drl could make sense, lgl could make sense too
+without specifying a seed, it looks a bit different every time
+```{r}
+ggraph(connectome_updated, layout = "lgl") +
+  geom_edge_link(
+    aes(alpha = Nbr, color=Type),
+    arrow = arrow(length = unit(2, "mm")), end_cap = circle(2, "mm"),
+  ) +
+  geom_node_point(size = 2, alpha = 0.5, shape=16) +
+  scale_edge_color_viridis(discrete=TRUE) +
+  scale_alpha(range =c(0.2, 0.8)) 
+
+```
+
+note to self: the normal color scales do not work on edges, need the `scale_edge_color_*` family of functions, see [here](https://rdrr.io/cran/ggraph/man/scale_edge_colour.html)
+
+not clear to me why the `scale_alpha` works then?
+
+
+the types of connections:
+```{r}
+unique(updated_data$Type)
+```
+
+Description quoted from [here](https://www.wormatlas.org/neuronalwiring.html)
+Type: Type of synapse: S: Send or output (Neuron 1 pre-synaptic to Neuron 2); Sp: Send-poly (Neuron 1 is pre-synaptic to more than one postsynaptic partner.  Neuron 2 is just one of these post-synaptic neurons, see Figure 1 below.  In White et al, 1986, these polyadic synaptic connections were denoted by “m” in the tables of Appendix 1); R: Receive or input (Neuron 1 is post-synaptic to Neuron 2); Rp: Receive-poly (Neuron 1 is one of several post-synaptic partners of Neuron 2.  See Figure 1 and above); EJ: Electric junction; NMJ: Neuromuscular junction (only reconstructed NMJ's are represented). 
+
+putting the neuron into groups... well. there is some information [here](https://www.wormatlas.org/neurons/Individual%20Neurons/Neuronframeset.html), but even as a neuroscientist I would have to go into quite some details to understand the labels and come up with reasonable groups. so I will only check whether the VXX neurons, which are the very obvious spinal cord motor neurons, are somehow clustered
+
+```{r}
+connectome_updated <- connectome_updated %>%
+  activate(nodes) %>%
+  mutate(coarse_group = if_else(stringr::str_detect(name, "^V"), "V", "other"))
+```
+
+```{r}
+ggraph(connectome_updated, layout = "lgl") +
+  geom_edge_link(
+    aes(alpha = Nbr, color=Type),
+    arrow = arrow(length = unit(2, "mm")), end_cap = circle(2, "mm"),
+  ) +
+  geom_node_point(aes(color=coarse_group),
+                  size = 2, alpha = 0.7, shape=16) +
+  scale_edge_color_viridis(option="plasma", discrete=TRUE) +
+  scale_alpha(range =c(0.2, 0.8)) +
+  scale_color_brewer(palette="Accent", type="qual")
+```
+
+in this rendering, the ventral motor neurons are put quite far apart... but there is a ring at the center of neurons that have a neuromuscular junction (NMJ) (and yes, these connections tend to be stringer)
+
+let's see what grouping algorithms do with this
+group_leading_eigen
+```{r}
+
+my_color = "gainsboro"
+connectome_updated %>%
+  activate(nodes) %>%
+  mutate(group = group_spinglass()) %>%
+  mutate(group = as.factor(group)) %>%
+  ggraph(layout = "lgl") +
+  geom_edge_link(
+    aes(alpha = Nbr, color=Type),
+    arrow = arrow(length = unit(2, "mm")), end_cap = circle(2, "mm"),
+  ) +
+  geom_node_point(aes(color=group),
+                  size = 2, alpha = 0.7, shape=16) +
+  scale_edge_color_viridis(option="plasma", discrete=TRUE, name = "Type of connection") +
+  scale_edge_alpha(range =c(0.2, 0.8), name = "Nr of connections") +
+  scale_color_brewer(palette="Accent", type="qual", guide="none") +
+  labs(title = "*C. elegans* connectome") +
+  theme(plot.title = element_markdown(),
+        plot.background = element_rect(fill=my_color),
+        panel.background = element_rect(fill = my_color),
+        legend.background = element_rect(fill = my_color))
+
+```
+not sure how to make the background of that part of the legend the same color - ?
+
+otherwise, done for now. hard to learn more about the connectome without understanding the cell types (and being a neuroscientist does not help too much here!)
