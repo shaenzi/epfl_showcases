@@ -11,3 +11,9 @@ here the task was to find some timeseries data and plot it. I looked at the popu
 
 ## 2. Maps/cartograms
 and another pretty open task: to find some geographic data and plot it. I decided to make a cartogram per canton in Switzerland showing the number of female representatives in parliament. plus some other related plots, can be found in [this folder](https://github.com/shaenzi/epfl_showcases/tree/main/02_cartograms)
+
+## 3. Networks
+From the second part of the course, I plotted some networks of my choice: of course I chose a brain, but a simple one, namely the one of *C. elegans*. These network plots are shown in [this folder](https://github.com/shaenzi/epfl_showcases/tree/main/03_networks_neurons), as usual with a markdown file as well as a knitted html.
+
+## 4. Volcanoes
+Based on a #TidyTuesday dataset on volcanoes, one of the small course projects was to generate some visualisations and a table, generating a story on volcanoes. I did some exploration in the Volcano_exploration, and then a more polished version in A_story_on_volcanoes, again both in R markdown and html versions. [This is the folder.](https://github.com/shaenzi/epfl_showcases/tree/main/04_volcanoes)
