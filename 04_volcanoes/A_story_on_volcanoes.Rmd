@@ -1,0 +1,602 @@
+---
+title: "A story on volcanoes"
+author: "Sara"
+date: "`r format(Sys.Date(), '%d %b %Y')`"
+output: 
+  rmdformats::downcute
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+knitr::opts_chunk$set(message = FALSE)
+knitr::opts_chunk$set(warning = FALSE)
+```
+
+```{r }
+library(dplyr)
+library(OpenStreetMap)
+library(leaflet)
+library(sf)
+library(ggplot2)
+library(ggtext)
+library(plotly)
+library(gt)
+```
+
+
+```{r }
+# Get the Data
+
+volcano <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2020/2020-05-12/volcano.csv')
+eruptions <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2020/2020-05-12/eruptions.csv')
+events <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2020/2020-05-12/events.csv')
+tree_rings <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2020/2020-05-12/tree_rings.csv')
+sulfur <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2020/2020-05-12/sulfur.csv')
+```
+# New Zealand volcanoes
+I'll start my exploration of volcanoes with some volcanoes that I have personally seen - the ones in New Zealand.
+
+```{r}
+# get NZ volcanoes
+nz_volcano_numbers <- volcano %>%
+  filter(country=="New Zealand") %>%
+  pull(volcano_number)
+
+volcano_nz <- volcano %>%
+  filter(volcano_number %in% nz_volcano_numbers)
+
+```
+
+```{r results='hide'}
+# get a map of NZ
+world <- st_read("./data/naturalearth/ne_110m_admin_0_countries.shp")
+
+NZ_bb <- world %>%
+  filter(NAME == "New Zealand")%>% 
+  st_transform(crs = "EPSG:4326") %>%
+  st_buffer(35000) %>%
+  st_bbox()
+
+map_nz <- openmap(upperLeft = c(NZ_bb[2],NZ_bb[1]),
+                lowerRight = c(NZ_bb[4], NZ_bb[3]),
+                  type = "osm",
+                zoom = 5)
+
+map_nz <- openproj(map_nz, projection = "+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs")
+```
+
+
+```{r warning=FALSE}
+autoplot.OpenStreetMap(map_nz) +
+  geom_point(data = volcano_nz,
+             mapping = aes(x = longitude, y = latitude),
+             color = "red") +
+  scale_x_continuous(limits = c(NZ_bb[1], NZ_bb[3])) +
+  scale_y_continuous(limits = c(NZ_bb[2], NZ_bb[4])) +
+  theme_void()
+```
+
+They are all concentrated on the North Island, and form one end of a long line of volcanoes stretching all the way to Fiji, which we can see when I plot not only NZ but the whole world.
+
+# Interactive map of all volcanoes
+
+So here we look at all volcanoes, and add some interactivity, to be able to learn more about them than only their geographical position.
+
+after some pretty intense data wrangling, here's an interactive map of all volcanoes, with the volcanic explosivity index (VEI) as well as the year of the most recent eruption mapped, plus more information available with the tooltip:
+
+```{r}
+# prepare data
+volcano_last_eruption <- eruptions %>%
+  mutate(end_year = if_else(is.na(end_year), start_year, end_year)) %>%
+  tidyr::drop_na(evidence_method_dating) %>%
+  group_by(volcano_number) %>%
+  slice_max(order_by = end_year) %>%
+  select(-volcano_name, -latitude, -longitude) %>%
+  right_join(volcano, by = c("volcano_number"))
+
+volcano_last_eruption <- volcano_last_eruption %>%
+  mutate(vei_for_scale = replace(vei, is.na(vei), 0)) %>%
+  mutate(vei_for_scale = vei_for_scale + 5) %>%
+  mutate(cat_last_occurred = case_when(end_year > 2011 ~ "10y",
+                                       end_year > 1921 ~ "100y",
+                                       end_year > 1021 ~ "1000y",
+                                       end_year <= 1021 ~ ">1000y",
+                                       is.na(end_year) ~ "Unknown"))
+```
+
+```{r}
+# prepare tooltip text
+mytext <- paste(
+    "Name: ", volcano_last_eruption$volcano_name,"<br/>", 
+    "Type: ", volcano_last_eruption$primary_volcano_type, "<br/>", 
+    "Last eruption: ", volcano_last_eruption$end_year, "<br/>",
+    "VEI of last eruption: ", volcano_last_eruption$vei, "<br/>",
+    "Population within 30km: ", volcano_last_eruption$population_within_10_km,
+    sep="") %>%
+  lapply(htmltools::HTML)
+
+```
+
+```{r}
+# prepare colors
+factpal_year <- colorFactor(palette = c("#ecda9a", "#f3ad6a", "#f97b57", "#ee4d5a", "#B3B3B3"), 
+                                 domain = volcano_last_eruption$cat_last_occurred)
+
+```
+
+
+```{r}
+volcano_last_eruption %>%
+leaflet() %>%
+  addProviderTiles(providers$Esri.WorldPhysical) %>%
+  setView(lng = 0, lat = 0, zoom = 1.49) %>%
+  addCircleMarkers(lng = ~longitude, 
+                   lat = ~latitude,
+                   radius = ~vei_for_scale,
+                   color = ~factpal_year(cat_last_occurred),
+    stroke = FALSE, 
+    fillOpacity = 0.8,
+    label = mytext,
+    labelOptions = labelOptions( 
+      style = list("font-weight" = "normal", padding = "3px 8px"), 
+      textsize = "13px", 
+      direction = "auto"
+    )) %>%
+  addLegend("bottomleft", 
+            pal = factpal_year, 
+            values = ~cat_last_occurred,
+    title = "How long ago was the last eruption?",
+    opacity = 1)
+```
+
+*question*: how can I change the order of the colors? It would be nice if grey was on top... I have tried in a few ways but not yet managed.
+
+# Explosivity by year and geography
+
+Rather than looking at the volcanoes mainly by geography, we can also look at the eruptions, when they happened and how explosive they were. So: When and where in recent history did the most explosive eruptions take place?
+
+The volcanoes are grouped geographically by region, though there are quite a few of them - 19 to be exact. That's quite a lot of regions to look at, so start smaller, with the regions selected to have had the most explosive eruptions within the last 50 years.
+
+```{r}
+# clean volcano data
+volcano <- volcano %>%
+  mutate(primary_volcano_type = case_when(stringr::str_detect(primary_volcano_type, "Stratovol") ~ "Stratovolcano",
+                                          stringr::str_detect(primary_volcano_type, "Lava con") ~ "Lava cone(s)",
+                                          stringr::str_detect(primary_volcano_type, "Lava dom") ~ "Lava dome(s)",
+                                          stringr::str_detect(primary_volcano_type, "Tuff con") ~ "Tuff cone(s)",
+                                          stringr::str_detect(primary_volcano_type, "Complex") ~ "Complex(es)",
+                                          stringr::str_detect(primary_volcano_type, "Shield") ~ "Shield(s)",
+                                          stringr::str_detect(primary_volcano_type, "Caldera") ~ "Caldera(s)",
+                                          TRUE ~ primary_volcano_type))
+
+volcano <- volcano %>%
+  mutate(region = iconv(region, from = 'UTF-8', to = 'ASCII//TRANSLIT'))
+```
+
+```{r}
+# merge volcano data with eruption data
+volcano_eruptions_last_50y <- eruptions %>%
+  mutate(end_year = if_else(is.na(end_year), start_year, end_year)) %>%
+  tidyr::drop_na(evidence_method_dating) %>%
+  filter(end_year > (2022-50)) %>%
+  group_by(volcano_number) %>%
+  #slice_max(order_by = end_year) %>%
+  select(-volcano_name, -latitude, -longitude) %>%
+  right_join(volcano, by = c("volcano_number"))
+```
+
+
+```{r}
+# select which regions to plot
+selected_regions <- volcano_eruptions_last_50y %>%
+  group_by(region) %>%
+  slice_max(order_by = vei, with_ties = FALSE) %>%
+  ungroup() %>%
+  slice_max(order_by = vei, n=4) %>%
+  pull(region)
+```
+
+
+```{r}
+# and plot
+volcano_eruptions_last_50y %>%
+  filter(region %in% selected_regions) %>%
+  filter(vei > 1) %>%
+  ggplot(aes(x = region, y = end_year)) +
+  geom_point(aes(size=vei, color=primary_volcano_type), 
+             alpha = 0.6,
+             shape = 16) +
+  rcartocolor::scale_color_carto_d(palette=2, direction = -1) +
+  scale_size(range = c(4, 20), breaks = c(3, 6)) + 
+  guides(size = guide_legend(override.aes = list(alpha = 0.4)),
+         col = guide_legend(ncol = 2, override.aes = list(size = 4))) +
+  scale_y_continuous(breaks = seq(1980, 2020, 10), minor_breaks = NULL) +
+  labs(title = "The most explosive volcano eruptions in the last 50 years",
+       color = "Volcano type",
+       size = "Explosivity",
+       x = "", 
+       y = "") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 0.8, hjust = 0.8),
+        plot.title = element_text(vjust = 5),
+        plot.title.position = "plot")
+```
+
+that's a decent start. 
+*Question*: how can I make sure I can see the entire title? the `fig.height` option does not seem to help here...
+
+nevertheless, I would like to include more data - how overwhelming is the plot going to be if I include all regions and the last 100 years?
+
+```{r}
+# prepare data last 100 years
+volcano_eruptions_last_100y <- eruptions %>%
+  mutate(end_year = if_else(is.na(end_year), start_year, end_year)) %>%
+  tidyr::drop_na(evidence_method_dating) %>%
+  filter(end_year > 1922) %>%
+  group_by(volcano_number) %>%
+  #slice_max(order_by = end_year) %>%
+  select(-volcano_name, -latitude, -longitude) %>%
+  right_join(volcano, by = c("volcano_number"))
+```
+
+
+```{r, fig.height=10}
+# and plot
+volcano_eruptions_last_100y %>%
+  filter(vei > 1) %>%
+  ggplot(aes(x = region, y = end_year)) +
+  geom_point(aes(size=vei, color=primary_volcano_type), 
+             alpha = 0.6,
+             shape = 16) +
+  rcartocolor::scale_color_carto_d(palette="Prism", direction = -1) +
+  scale_size(range = c(4, 20), breaks = c(2, 4, 6)) + 
+  guides(size = guide_legend(override.aes = list(alpha = 0.4)),
+         col = guide_legend(ncol = 1, override.aes = list(size = 4))) +
+  scale_y_continuous(breaks = seq(1930, 2020, 10), minor_breaks = NULL) +
+  labs(title = "Explosivity of volcano eruptions in the last 100 years",
+       color = "Volcano type",
+       size = "Explosivity",
+       x = "", 
+       y = "") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 0.8, hjust = 0.8),
+        plot.title = element_text(size = 20),
+        plot.title.position = "plot", 
+        text = element_text(size=17),
+        plot.background = element_rect(fill = "floralwhite", color = "floralwhite"))
+```
+
+*Question* why are the x axis labels so unevenly aligned at the top?
+and another one: how can I make the relative space the legend takes a bit smaller? (and generally the figure a bit bigger? I set e.g. the fontsize after viewing the figure in the markdown, but it seems to come out pretty differently after knitting)
+
+## again making it interactive
+Again, it would be nice to let the reader explore the data themselves, so I make the graph interactive again by adding information at the tooltip, this time using plotly.
+
+```{r}
+p_small <- volcano_eruptions_last_50y %>%
+  filter(region %in% selected_regions) %>%
+  filter(vei > 1) %>%
+  ggplot(aes(x = region, y = end_year)) +
+  geom_point(aes(size=vei, color=primary_volcano_type, text = paste("Region:", region, "<br>",
+                      "Explosivity:", vei, "<br>",
+                 "Year:", end_year, "<br>",
+                 "Volcano type:", primary_volcano_type, "<br>",
+                 "Major rock:", major_rock_1, "<br>",
+                 "Elevation:", elevation, "m")),
+             
+             alpha = 0.6,
+             shape = 16) +
+  rcartocolor::scale_color_carto_d(palette=2, direction = -1) +
+  scale_size(range = c(4, 20), breaks = c(3, 6)) + 
+  guides(size = guide_legend(override.aes = list(alpha = 0.4)),
+         col = guide_legend(ncol = 2, override.aes = list(size = 4))) +
+  scale_y_continuous(breaks = seq(1980, 2020, 10), minor_breaks = NULL) +
+  labs(title = "The most explosive volcano eruptions in the last 50 years",
+       color = "Volcano type",
+       size = "Explosivity",
+       x = "", 
+       y = "") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 0.8, hjust = 0.8),
+        plot.title = element_text(vjust = 5),
+        plot.title.position = "plot")
+
+ggplotly(p_small, tooltip = c("text"))
+```
+
+
+
+```{r}
+p_large <- volcano_eruptions_last_100y %>%
+  #filter(region %in% selected_regions) %>%
+  filter(vei > 1) %>%
+  ggplot(aes(x = region, y = end_year)) +
+  geom_point(aes(size=vei, color=primary_volcano_type, text = paste("Region:", region, "<br>",
+                      "Explosivity:", vei, "<br>",
+                 "Year:", end_year, "<br>",
+                 "Volcano type:", primary_volcano_type, "<br>",
+                 "Major rock:", major_rock_1, "<br>",
+                 "Elevation:", elevation, "m")), 
+             alpha = 0.6,
+             shape = 16) +
+  rcartocolor::scale_color_carto_d(palette="Prism", direction = -1) +
+  scale_size(range = c(4, 16), breaks = c(2, 4, 6)) + 
+  guides(size = guide_legend(override.aes = list(alpha = 0.4)),
+         col = guide_legend(ncol = 1, override.aes = list(size = 4))) +
+  scale_y_continuous(breaks = seq(1930, 2020, 10), minor_breaks = NULL) +
+  labs(title = "Explosivity of volcano eruptions in the last 100 years",
+       color = "Volcano type",
+       size = "Explosivity",
+       x = "", 
+       y = "") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 0.8, hjust = 0.8),
+        plot.title = element_text(size = 20),
+        plot.title.position = "plot", 
+        text = element_text(size=17),
+        plot.background = element_rect(fill = "floralwhite", color = "floralwhite"))
+
+ggplotly(p_large, tooltip = c("text"), height = 1.8*480, width = 1.8*640)
+```
+
+
+
+## adding geographical information
+the list of 19 regions is somewhat random, so it would be nice to include geographical information. try with an inset map as an axis label
+(note: I am not combining this with the interactive version as {ggplotly} does not seem to go well with {ggtext})
+```{r}
+# prepare simplified world shape
+sf_use_s2(FALSE)
+world_simplified <- world %>%
+  st_transform(crs = "EPSG:4326") %>%
+  st_simplify()
+```
+
+```{r}
+# make and save one plot for each region
+regions <- unique(volcano$region)
+fig_list <- vector(mode = "list", length = length(regions))
+fns <- vector(mode = "list", length = length(regions))
+
+for (i in seq_along(regions)){
+  selected_region <- regions[[i]] # never sure whether I need one or two square brackets
+  p <- ggplot() +
+  geom_sf(
+    data = world_simplified,
+    fill = "white",
+    size = 0.3,
+    colour = "lightgrey"
+  ) +
+  geom_point(data = volcano %>% filter(region==selected_region),
+             mapping = aes(x = longitude, y = latitude),
+             color = "red") +
+  theme_void()
+  fig_list[[i]] <- p
+  current_fn <- stringr::str_c(selected_region, ".png")
+  fns[[i]] <- current_fn
+  ggsave(current_fn, p, units = "cm", width = 7.5, height = 3)
+  
+}
+```
+
+```{r, fig.height=10}
+labels <- paste0("<img src='", fns, "' width='70'/>")
+names(labels) <- regions
+
+volcano_eruptions_last_100y %>%
+  filter(vei > 1) %>%
+  ggplot(aes(x = region, y = end_year)) +
+  geom_point(aes(size=vei, color=primary_volcano_type), 
+             alpha = 0.6,
+             shape = 16) +
+  rcartocolor::scale_color_carto_d(palette="Prism", direction = -1) +
+  scale_size(range = c(4, 20), breaks = c(2, 4, 6)) + 
+  guides(size = guide_legend(override.aes = list(alpha = 0.4)),
+         col = guide_legend(ncol = 1, override.aes = list(size = 4))) +
+  scale_y_continuous(breaks = seq(1930, 2020, 10), minor_breaks = NULL) +
+  scale_x_discrete(
+    name = NULL,
+    labels = labels
+  ) +
+  labs(title = "Explosivity of volcano eruptions in the last 100 years",
+       color = "Volcano type",
+       size = "Explosivity",
+       x = "", 
+       y = "") +
+  theme_minimal() +
+  theme(#axis.text.x = element_text(angle = 45, vjust = 0.8, hjust = 0.8),
+        plot.title = element_text(size = 20),
+        plot.title.position = "plot", 
+        text = element_text(size=17),
+        plot.background = element_rect(fill = "floralwhite", color = "floralwhite"),
+        axis.text.x = element_markdown(color = "black", size = 11))
+```
+
+well, that's too small :-/ how about in the reduced plot?
+
+```{r, fig.height=6}
+labels <- paste0("<img src='", selected_regions, ".png' width='125'/>")
+names(labels) <- selected_regions
+
+volcano_eruptions_last_50y %>%
+  filter(region %in% selected_regions) %>%
+  filter(vei > 1) %>%
+  ggplot(aes(x = region, y = end_year)) +
+  geom_point(aes(size=vei, color=primary_volcano_type), 
+             alpha = 0.6,
+             shape = 16) +
+  rcartocolor::scale_color_carto_d(palette=2, direction = -1) +
+  scale_size(range = c(4, 20), breaks = c(3, 6)) + 
+  guides(size = guide_legend(override.aes = list(alpha = 0.4)),
+         col = guide_legend(ncol = 2, override.aes = list(size = 4))) +
+  scale_y_continuous(breaks = seq(1980, 2020, 10), minor_breaks = NULL) +
+  scale_x_discrete(
+    name = NULL,
+    labels = labels
+  ) +
+  labs(title = "The most explosive volcano eruptions in the last 50 years",
+       color = "Volcano type",
+       size = "Explosivity",
+       x = "", 
+       y = "") +
+  theme_minimal() +
+  theme(#axis.text.x = element_text(angle = 45, vjust = 0.8, hjust = 0.8),
+        plot.title = element_text(vjust = 5),
+        plot.title.position = "plot",
+        axis.text.x = element_markdown(color = "black", size = 11))
+```
+
+still a bit small? *question* do you have another idea of how to add the geographical information meaningfully to that chart? here are the geographical regions to explore:
+
+```{r}
+factpal_region <- colorFactor(palette = c("#5F4690", "#1D6996", "#38A6A5", "#0F8554", 
+                                          "#73AF48", "#EDAD08", "#E17C05", "#CC503E", 
+                                          "#94346E", "#6F4070", "#994E95", "#666666", 
+                                          "#000000", "#ffffff", "#66C5CC", "#F6CF71", 
+                                          "#F89C74", "#DCB0F2", "#87C55F"),
+                                 domain = volcano_last_eruption$region)
+
+volcano_last_eruption %>%
+leaflet() %>%
+  addProviderTiles(providers$Esri.WorldPhysical) %>%
+  setView(lng = 0, lat = 0, zoom = 1.49) %>%
+  addCircleMarkers(lng = ~longitude, 
+                   lat = ~latitude,
+                   color = ~factpal_region(region),
+                   radius = 6,
+                   stroke = FALSE, 
+    fillOpacity = 0.8
+    )
+```
+
+# People near volcanoes
+When a volcano erupts in the middle of nowhere, people might be affected by restricted air travel such as with the eruption of Eyjafjallajökull in Iceland in 2010 However, when people live nearby, it's a whole different level of dangerous. So how many people have been near explosive eruptions in the last 25 years?
+
+```{r}
+ggthemr::ggthemr("flat dark", type = "outer")
+volcano_eruptions_last_50y %>%
+  filter(vei>2) %>%
+  ggplot(aes(x = end_year, y = population_within_30_km)) +
+  geom_point(aes(size=vei)) +
+  annotate(
+    geom = "curve", x = 2000, y = 4100000, xend = 2010, yend = 4400000, 
+    curvature = -.2, arrow = arrow(length = unit(2, "mm")),
+    color="white"
+  ) +
+  annotate(geom = "text", x = 1995, y = 4000000, label = "3 eruptions of Merapi on Java, Indonesia", hjust = "left") +
+  scale_y_continuous(labels = scales::label_number(scale = 1e-6, suffix = "m")) +
+  labs(title = "Recent eruptions with many people nearby",
+       x = "year",
+       y = "Population (million)", 
+       size = "Explosivity")
+```
+
+In Indonesia, more than 4mio people live within 30km of Mearpi, which has erupted with an explosivity index of 3 or larger within the last 12 years!
+
+Distributions of people are of course graded, so let's look at how many people live within 5, 10, 30 or 100km from volcanoes:
+
+```{r}
+pop_near_volcano <- volcano %>%
+  select(volcano_number, starts_with("population")) %>%
+  tidyr::pivot_longer(cols = starts_with("population"),
+                      names_to = "distance",
+                      values_to = "population") %>%
+  mutate(distance_nr = case_when(stringr::str_detect(distance, "5_km") ~ 5,
+                                 stringr::str_detect(distance, "10_km") ~ 10,
+                                 stringr::str_detect(distance, "30_km") ~ 30,
+                                 stringr::str_detect(distance, "100_km") ~ 100))
+
+```
+
+```{r}
+# highlight volcanoes with a large eruption in the last 25y
+selected_volcanos <- volcano_eruptions_last_50y %>%
+  filter(end_year > (2022-25)) %>%
+  filter(vei > 3) %>%
+  pull(volcano_number)
+
+pop_near_volcano <- pop_near_volcano %>%
+  mutate(large_eruption = if_else(volcano_number %in% selected_volcanos, 1, 0)) %>%
+  mutate(large_eruption = factor(large_eruption))
+```
+
+```{r}
+pop_near_volcano %>%
+  ggplot(aes(x = distance_nr, y = population, group = volcano_number)) +
+  geom_line(aes(color = large_eruption, alpha = large_eruption)) +
+  scale_x_continuous(breaks = c(0, 5, 10, 30, 100)) +
+  scale_y_continuous(labels = scales::label_number(scale = 1e-6, suffix = "m")) +
+  scale_color_manual(values = c("#F1F1F1", "#CA562C"), guide = "none") +
+  scale_alpha_discrete(range = c(0.3, 1), guide = "none") +
+  labs(title = "How many people live near a volcano?",
+       subtitle = "Volcanoes with a large eruption in the last 25y are <span style = 'color:#CA562C;'>highlighted</span>",
+       x = "Distance (km)",
+       y = "Population (million)") +
+  #ggdark::dark_theme_light() +
+  theme(plot.subtitle = element_markdown())
+
+```
+
+Finally coming back to those volcanoes in New Zealand: 
+
+```{r}
+volcano_nz %>%
+  select(volcano_name, primary_volcano_type, last_eruption_year,major_rock_1, population_within_30_km) %>%
+  arrange(desc(population_within_30_km)) %>%
+  gt() %>%
+  cols_label(
+    volcano_name = "Name",
+    primary_volcano_type = "Type",
+    last_eruption_year = "Year of last eruption",
+    major_rock_1 = "Major rock",
+    population_within_30_km = "People within 30km",
+  ) %>%
+  tab_header(
+    title = md("**New Zealand volcanoes**"),
+    #subtitle = "QBS limited to playoff games where they threw a pass"
+  )
+```
+
+It turns out that these volcanoes do not have many people living nearby (except the ones  close to Auckland) as all of New Zealand only has about 5 mio inhabitants. However, at least in the Maori legends, it might matter less how many people are nearby than how many other volcanoes:
+
+>The story goes that in the days when the earth was young there were four mountain warriors: Tongariro, Taranaki (Mt Egmont), Tauhara and Pūtauaki (Mt Edgecumbe). There was also the beautiful maiden mountain, Pīhanga. The warrior mountains fought for her affections, and after a long battle Tongariro emerged the winner.
+
+>The defeated mountains decided that they should leave Tongariro’s domain. They were to travel as far as they could before dawn, when the rising sun would fix them to the spot. Pūtauaki headed east and by daybreak reached his present position at Kawerau. Tauhara travelled slowly, all the time looking back longingly at Pīhanga; he only reached the other end of the lake. Taranaki went west and still looks back, hoping for the day when he might return to avenge his defeat. Meanwhile, Pīhanga became the wife of Tongariro, and they had a child named Pukeronaki.
+
+Unfortunately, not all of these volcanoes are in the dataset, and not all of them can be found by geocoding. But what we can definitely see is that Taranaki went furthest...
+
+```{r}
+map_nz <- openmap(upperLeft = c(-42.5,172.7),
+                lowerRight = c(NZ_bb[4], NZ_bb[3]),
+                  type = "osm",
+                zoom = 6)
+
+map_nz <- openproj(map_nz, projection = "+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs")
+
+```
+
+```{r}
+ggthemr::ggthemr_reset()
+autoplot.OpenStreetMap(map_nz) +
+  geom_point(data = volcano_nz,
+             mapping = aes(x = longitude, y = latitude),
+             color = "red") +
+  scale_x_continuous(limits = c(172.7, NZ_bb[3])) +
+  scale_y_continuous(limits = c(-42.5, NZ_bb[4])) +
+  annotate(
+    geom = "curve", x = 173.5, y = -38.2, xend = 174, yend = -39, 
+    curvature = .2, arrow = arrow(length = unit(2, "mm")),
+    color="black"
+  ) +
+  annotate(geom = "text", x = 173, y = -38, label = "Taranaki", hjust = "left", color="black") +
+  annotate(
+    geom = "curve", x = 177, y = -41.5, xend = 175.8, yend = -39.2, 
+    curvature = .2, arrow = arrow(length = unit(2, "mm")),
+    color="black"
+  ) +
+  annotate(geom = "text", x = 176.5, y = -42, label = "Tongariro and \nthe others", hjust = "left", color="black") +
+  theme_void()
+
+
+```
+
