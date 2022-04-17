@@ -1,0 +1,339 @@
+---
+title: "Beautiful maps"
+author: "Sara"
+date: "`r format(Sys.Date(), '%d %b %Y')`"
+output: 
+  rmdformats::downcute
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, warning=FALSE, message=FALSE}
+library(tidyverse)
+library(ggplot2)
+library(sf)
+library(osmdata)
+```
+
+# Mapping a city
+The task was to choose a city and map at least 5 features with openstreetmap
+
+## Start with Copenhagen! 
+with an adjusted bounding box
+however, as I found out with Daniel's help, apparently I cannot simply have a vector as a bounding box, but need it to be a matrix...i.e. aiming for this
+```{r}
+getbb("copenhagen")
+```
+
+it's a bit mean, as when I feed it onwards, it looks like a vector:
+```{r}
+getbb("copenhagen") %>% opq()
+```
+
+but when I feed it a vector, the order of the coordinates are wrong!
+
+```{r}
+my_bb <- c(55.556724,12.410072,55.716724,12.685072)
+
+opq(my_bb)
+```
+so have to convert my modified bounding box to a matrix, or switch the order...
+```{r}
+my_bb <- c(12.410072, 55.556724,12.685072,55.716724)
+
+opq(my_bb)
+```
+As I will do this again for another city, I'll put the data gathering in a function
+
+```{r}
+get_osm_data <- function(bb){
+  small_streets <- opq(bb) %>%
+  add_osm_feature(
+    key = "highway",
+    value = c(
+      "residential", "living_street",
+      "unclassified",
+      "service", "footway"
+    )
+  ) %>%
+  osmdata_sf() %>%
+  purrr::pluck("osm_lines")
+
+Sys.sleep(1.1)
+
+streets <-  opq(bb) %>%
+  add_osm_feature(
+    key = "highway",
+    value = c(
+      "motorway", "primary",
+      "secondary", "tertiary"
+    )
+  ) %>%
+  osmdata_sf() %>%
+  purrr::pluck("osm_lines")
+
+Sys.sleep(1.1)
+
+railway <- opq(bb) %>%
+  add_osm_feature(
+    key = "railway",
+    value = c(
+      "rail"
+    )
+  ) %>%
+  osmdata_sf() %>%
+  purrr::pluck("osm_lines")
+
+Sys.sleep(1.1)
+
+metro <- opq(bb) %>%
+  add_osm_feature(
+    key = "railway",
+    value = c(
+      "subway"
+    )
+  ) %>%
+  osmdata_sf() %>%
+  purrr::pluck("osm_lines")
+
+Sys.sleep(1.1)
+
+water <- opq(bb) %>%
+  add_osm_feature(
+    key = "natural",
+    value = c("bay", "water", "strait")
+  )%>%
+  osmdata_sf() %>%
+  purrr::pluck("osm_multipolygons")
+
+output <- list("small_streets"=small_streets,
+            "streets" = streets,
+            "railway"= railway,
+            "metro"=metro,
+            "water"=water)
+
+}
+```
+
+```{r}
+copenhagen <- get_osm_data(my_bb)
+```
+
+
+```{r}
+ggplot() +
+  geom_sf(data = copenhagen[["streets"]], color = "#fdbb84", size = 1) +
+  geom_sf(data = copenhagen[["small_streets"]], color = "#fee8c8", alpha = 0.6) +
+  geom_sf(data = copenhagen[["railway"]],  color = "#f2f2f2", size = 1) +
+  geom_sf(data = copenhagen[["metro"]], fill = "#b2b2b2", size = 0.6) +
+  geom_sf(data = copenhagen[["water"]], fill = "#3182bd", color = "#3182bd") +
+  coord_sf(
+    expand = FALSE
+  ) +
+  theme_void() +
+  theme(plot.background = element_rect(fill = "#282828"))
+```
+
+hmm, that one water polygon is way bigger than the original bb - need to limit the scales.
+
+```{r}
+ggplot() +
+  geom_sf(data = copenhagen[["streets"]], color = "#fdbb84", size = 1) +
+  geom_sf(data = copenhagen[["small_streets"]], color = "#fee8c8", alpha = 0.6) +
+  geom_sf(data = copenhagen[["railway"]],  color = "#f2f2f2", size = 1) +
+  geom_sf(data = copenhagen[["metro"]], fill = "#b2b2b2", size = 0.6) +
+  geom_sf(data = copenhagen[["water"]], fill = "#3182bd", color = "#3182bd") +
+  coord_sf(
+    expand = FALSE
+  ) +
+  scale_x_continuous(limits = c(12.4, 12.69)) +
+  scale_y_continuous(limits = c(55.557,55.724)) +
+  theme_void() +
+  theme(plot.background = element_rect(fill = "#282828"))
+```
+
+or crop with `st_crop`
+but this again needs yet another format of a bounding box... use a named vector
+```{r}
+bb <- c("xmin" = 12.4, "xmax" = 12.7, "ymin" = 55.556724, "ymax" = 55.716724)
+
+ggplot() +
+  geom_sf(data = st_crop(copenhagen[["streets"]], bb), color = "#fdbb84", size = 1) +
+  geom_sf(data = st_crop(copenhagen[["small_streets"]], bb), color = "#fee8c8", alpha = 0.6) +
+  geom_sf(data = st_crop(copenhagen[["railway"]], bb),  color = "#f2f2f2", size = 1) +
+  geom_sf(data = st_crop(copenhagen[["metro"]], bb), fill = "#b2b2b2", size = 0.6) +
+  geom_sf(data = st_crop(copenhagen[["water"]], bb), fill = "#3182bd", color = "#3182bd") +
+  #coord_sf(expand = FALSE) +
+  #scale_x_continuous(limits = c(12.4, 12.69)) +
+  #scale_y_continuous(limits = c(55.557,55.724)) +
+  theme_void() +
+  theme(plot.background = element_rect(fill = "#282828"))
+
+
+```
+
+(and no idea why the line of `coord_sf(expand = FALSE)` would make it crash... don't need it anyway.)
+
+```{r}
+remove(copenhagen)
+```
+
+
+## Zurich
+I like it! I am also going to get stuff from ZH
+
+```{r}
+my_bb <- getbb("zurich")
+```
+
+```{r}
+zh <- get_osm_data(my_bb)
+```
+
+```{r}
+ggplot() +
+  geom_sf(data = zh[["streets"]], color = "#fdbb84", size = 1) +
+  geom_sf(data = zh[["small_streets"]], color = "#fee8c8", alpha = 0.6) +
+  geom_sf(data = zh[["railway"]],  color = "#f2f2f2", size = 1) +
+  geom_sf(data = zh[["metro"]], fill = "#b2b2b2", size = 0.6) +
+  geom_sf(data = zh[["water"]], fill = "#3182bd", color = "#3182bd") +
+  coord_sf(
+    expand = FALSE
+  ) +
+  theme_void() +
+  theme(plot.background = element_rect(fill = "#282828"))
+```
+
+same story about the water being larger...
+
+```{r}
+ggplot() +
+  geom_sf(data = zh[["streets"]], color = "#fdbb84", size = 1) +
+  geom_sf(data = zh[["small_streets"]], color = "#fee8c8", alpha = 0.6) +
+  geom_sf(data = zh[["railway"]],  color = "#f2f2f2", size = 1) +
+  geom_sf(data = zh[["metro"]], fill = "#b2b2b2", size = 0.6) +
+  geom_sf(data = zh[["water"]], fill = "#3182bd", color = "#3182bd") +
+  coord_sf(
+    expand = TRUE
+  ) +
+  scale_x_continuous(limits = c(8.45, 8.63)) +
+  scale_y_continuous(limits = c(47.32, 47.43)) +
+  theme_void() +
+  theme(plot.background = element_rect(fill = "#282828"))
+```
+
+the axis expansion seems to be slightly different in the x and y direction... would like a bit more at the top, so manually tweak
+
+```{r}
+ggplot() +
+  geom_sf(data = zh[["streets"]], color = "#fdbb84", size = 1) +
+  geom_sf(data = zh[["small_streets"]], color = "#fee8c8", alpha = 0.6) +
+  geom_sf(data = zh[["railway"]],  color = "#f2f2f2", size = 1) +
+  geom_sf(data = zh[["metro"]], fill = "#b2b2b2", size = 0.6) +
+  geom_sf(data = zh[["water"]], fill = "#3182bd", color = "#3182bd") +
+  coord_sf(
+    expand = TRUE
+  ) +
+  scale_x_continuous(limits = c(8.45, 8.63)) +
+  scale_y_continuous(limits = c(47.32, 47.435)) +
+  theme_void() +
+  theme(plot.background = element_rect(fill = "#282828"))
+```
+
+but better with crop:
+```{r}
+bb <- c("xmin" = 8.45, "xmax" = 8.63, "ymin" = 47.32, "ymax" = 47.43)
+ggplot() +
+  geom_sf(data = st_crop(zh[["streets"]], bb), color = "#fdbb84", size = 1) +
+  geom_sf(data = st_crop(zh[["small_streets"]], bb), color = "#fee8c8", alpha = 0.6) +
+  geom_sf(data = st_crop(zh[["railway"]], bb),  color = "#f2f2f2", size = 1) +
+  geom_sf(data = st_crop(zh[["metro"]], bb), fill = "#b2b2b2", size = 0.6) +
+  geom_sf(data = st_crop(zh[["water"]], bb), fill = "#3182bd", color = "#3182bd") +
+  theme_void() +
+  theme(plot.background = element_rect(fill = "#282828"))
+
+```
+
+there we go. and now I can go into artistic colors with the [met brewer](https://github.com/BlakeRMills/MetBrewer) package
+
+```{r}
+library(MetBrewer)
+```
+
+```{r}
+plot_zurich <- function(pal, bb){
+p <- ggplot() +
+  geom_sf(data = st_crop(zh[["streets"]], bb), color = pal[1], size = 1) +
+  geom_sf(data = st_crop(zh[["small_streets"]], bb), color = pal[2], alpha = 0.6) +
+  geom_sf(data = st_crop(zh[["railway"]], bb),  color = pal[3], size = 1) +
+  geom_sf(data = st_crop(zh[["metro"]], bb), fill = pal[4], size = 0.6) +
+  geom_sf(data = st_crop(zh[["water"]], bb), fill = pal[5], color = pal[5]) +
+  theme_void() +
+  theme(plot.background = element_rect(fill = pal[6],
+                                       color = pal[6]))
+
+p
+}
+```
+
+```{r}
+pal <- met.brewer(name="Tiepolo", n=6, type = "discrete")
+pal
+```
+
+
+```{r}
+p <- plot_zurich(pal)
+p
+```
+
+this is fun! I'll do some more:
+
+```{r}
+pal <- met.brewer(name="Lakota", n=6, type = "discrete")
+pal
+```
+
+```{r}
+q <- plot_zurich(pal)
+q
+```
+
+also a bit dark, but with more variety. Funny to see the lake in green!
+
+```{r}
+pal <- met.brewer(name="Juarez", n=6, type = "discrete")
+pal
+```
+
+```{r}
+r <- plot_zurich(pal)
+r
+```
+
+quite similar...
+```{r}
+pal <- met.brewer(name="Homer2", n=6, type = "discrete")
+pal
+```
+
+```{r}
+s <- plot_zurich(pal)
+s
+```
+
+I like this one :-)
+
+
+I'll save the ones I like best
+the plotting already takes a long time...
+
+```{r}
+ggsave("zurich1.png", plot = p, dpi=300)
+ggsave("zurich2.png", plot = q, dpi=300)
+ggsave("zurich3.png", plot = r, dpi=300)
+ggsave("zurich4.png", plot = s, dpi=300)
+```
+
