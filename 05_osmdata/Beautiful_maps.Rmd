@@ -205,7 +205,7 @@ ggplot() +
   theme_void() +
   theme(plot.background = element_rect(fill = "#282828"))
 ```
-
+(Zurich does not actually have a metro)
 same story about the water being larger...
 
 ```{r}
@@ -213,7 +213,6 @@ ggplot() +
   geom_sf(data = zh[["streets"]], color = "#fdbb84", size = 1) +
   geom_sf(data = zh[["small_streets"]], color = "#fee8c8", alpha = 0.6) +
   geom_sf(data = zh[["railway"]],  color = "#f2f2f2", size = 1) +
-  geom_sf(data = zh[["metro"]], fill = "#b2b2b2", size = 0.6) +
   geom_sf(data = zh[["water"]], fill = "#3182bd", color = "#3182bd") +
   coord_sf(
     expand = TRUE
@@ -231,7 +230,6 @@ ggplot() +
   geom_sf(data = zh[["streets"]], color = "#fdbb84", size = 1) +
   geom_sf(data = zh[["small_streets"]], color = "#fee8c8", alpha = 0.6) +
   geom_sf(data = zh[["railway"]],  color = "#f2f2f2", size = 1) +
-  geom_sf(data = zh[["metro"]], fill = "#b2b2b2", size = 0.6) +
   geom_sf(data = zh[["water"]], fill = "#3182bd", color = "#3182bd") +
   coord_sf(
     expand = TRUE
@@ -249,7 +247,6 @@ ggplot() +
   geom_sf(data = st_crop(zh[["streets"]], bb), color = "#fdbb84", size = 1) +
   geom_sf(data = st_crop(zh[["small_streets"]], bb), color = "#fee8c8", alpha = 0.6) +
   geom_sf(data = st_crop(zh[["railway"]], bb),  color = "#f2f2f2", size = 1) +
-  geom_sf(data = st_crop(zh[["metro"]], bb), fill = "#b2b2b2", size = 0.6) +
   geom_sf(data = st_crop(zh[["water"]], bb), fill = "#3182bd", color = "#3182bd") +
   theme_void() +
   theme(plot.background = element_rect(fill = "#282828"))
